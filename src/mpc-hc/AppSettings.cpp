@@ -252,6 +252,7 @@ CAppSettings::CAppSettings()
     , iRedirectOpenToAppendThreshold(1000)
     , bFullscreenSeparateControls(false)
     , bAlwaysUseShortMenu(false)
+    , iStillVideoDuration(10)
 {
     // Internal source filter
 #if INTERNAL_SOURCEFILTER_CDDA
@@ -1213,6 +1214,7 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_REDIRECT_OPEN_TO_APPEND_THRESHOLD, iRedirectOpenToAppendThreshold);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_SEPARATE_CONTROLS, bFullscreenSeparateControls);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_ALWAYS_USE_SHORT_MENU, bAlwaysUseShortMenu);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_STILL_VIDEO_DURATION, iStillVideoDuration);
 
     if (fKeepHistory) {
         if (write_full_history) {
@@ -2047,6 +2049,7 @@ void CAppSettings::LoadSettings()
     iRedirectOpenToAppendThreshold = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_REDIRECT_OPEN_TO_APPEND_THRESHOLD, 1000);
     bFullscreenSeparateControls = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_SEPARATE_CONTROLS, FALSE);
     bAlwaysUseShortMenu = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ALWAYS_USE_SHORT_MENU, FALSE);
+    iStillVideoDuration = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_STILL_VIDEO_DURATION, 10);
 
     // GUI theme can be used now
     static_cast<CMPlayerCApp*>(AfxGetApp())->m_bThemeLoaded = bMPCTheme;
@@ -2265,10 +2268,9 @@ void CAppSettings::ExtractDVDStartPos(CString& strParam)
 
 CString CAppSettings::ParseFileName(CString const& param)
 {
-    CString fullPathName;
-
     // Try to transform relative pathname into full pathname
     if (param.Find(_T(":")) < 0) {
+        CString fullPathName;
         DWORD dwLen = GetFullPathName(param, MAX_PATH, fullPathName.GetBuffer(MAX_PATH), nullptr);
         if (dwLen > 0 && dwLen < MAX_PATH) {
             fullPathName.ReleaseBuffer(dwLen);
@@ -2277,6 +2279,10 @@ CString CAppSettings::ParseFileName(CString const& param)
                 return fullPathName;
             }
         }
+    } else {
+        CString fullPathName = param;
+        ExtendMaxPathLengthIfNeeded(fullPathName, MAX_PATH);
+        return fullPathName;
     }
 
     return param;
@@ -2473,8 +2479,8 @@ void CAppSettings::ParseCommandLine(CAtlList<CString>& cmdln)
             if (param == _T("-")) { // Special case: standard input
                 slFiles.AddTail(_T("pipe://stdin"));
             } else {
-                const_cast<CString&>(param) = ParseFileName(param);
-                slFiles.AddTail(param);
+                CString strFile = ParseFileName(param);
+                slFiles.AddTail(strFile);
             }
         }
     }
