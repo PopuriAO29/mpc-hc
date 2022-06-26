@@ -5426,7 +5426,8 @@ HRESULT CMainFrame::RenderCurrentSubtitles(BYTE* pData) {
         CComPtr<CMemSubPicAllocator> pSubPicAllocator = DEBUG_NEW CMemSubPicAllocator(spdRender.type, CSize(spdRender.w, spdRender.h));
 
         CMemSubPic memSubPic(spdRender, pSubPicAllocator);
-        memSubPic.SetInverseAlpha(true);
+        memSubPic.SetInverseAlpha(false);
+        memSubPic.ClearDirtyRect();
 
         RECT bbox = {};
         hr = pSubPicProvider->Render(spdRender, rtNow, m_pCAP->GetFPS(), bbox);
@@ -7548,7 +7549,7 @@ void CMainFrame::OnViewZoomAutoFitLarger()
 
 void CMainFrame::OnViewModifySize(UINT nID)
 {
-    if (m_fFullScreen || IsZoomed() || IsIconic()) {
+    if (m_fFullScreen || !m_pVideoWnd || IsZoomed() || IsIconic()) {
         return;
     }
 
