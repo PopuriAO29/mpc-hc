@@ -3084,6 +3084,9 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 }
                 break;
             case EC_CLOCK_CHANGED:
+                if (m_pBA && !m_fFrameSteppingActive) {
+                    m_pBA->put_Volume(m_wndToolBar.Volume);
+                }
                 break;
             case 0xfa17:
                 // madVR changed graph state
@@ -4152,6 +4155,10 @@ void CMainFrame::OnStreamAudio(UINT nID)
         OnStreamSelect(nID == 0, 1);
     } else if (GetPlaybackMode() == PM_DVD) {
         SendMessage(WM_COMMAND, ID_DVD_AUDIO_NEXT + nID);
+    }
+
+    if (m_pBA && !m_fFrameSteppingActive) {
+        m_pBA->put_Volume(m_wndToolBar.Volume);
     }
 }
 
@@ -10813,7 +10820,7 @@ OAFilterState CMainFrame::GetMediaState() const
     OAFilterState ret = -1;
     if (m_eMediaLoadState == MLS::LOADED) {
         if (m_CachedFilterState != -1) {
-            #if DEBUG & 1
+            #if DEBUG & 0
             ret = GetMediaStateDirect();
             ASSERT(ret == m_CachedFilterState || m_fFrameSteppingActive);
             #endif
