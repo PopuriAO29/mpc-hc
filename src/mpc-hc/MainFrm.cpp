@@ -1985,7 +1985,7 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                             if (!m_pGB || !m_pMS) return; // can happen very rarely due to race condition
                             m_pMS->GetDuration(&rtDur);
 
-                            if (abRepeat.positionB && rtNow >= abRepeat.positionB && GetMediaState() != State_Stopped) {
+                            if ((abRepeat.positionA && rtNow < abRepeat.positionA || abRepeat.positionB && rtNow >= abRepeat.positionB) && GetMediaState() != State_Stopped) {
                                 PerformABRepeat();
                                 return;
                             }
@@ -8409,10 +8409,6 @@ void CMainFrame::OnPlayStop()
         m_Lcd.SetStatusMessage(ResStr(IDS_CONTROLS_STOPPED), 3000);
     } else {
         m_fEndOfStream = false;
-    }
-
-    if (abRepeat.positionA || abRepeat.positionB) {
-        DisableABRepeat();
     }
 
     SetPlayState(PS_STOP);
@@ -19377,6 +19373,7 @@ bool CMainFrame::isSafeZone(CPoint pt) {
     m_wndSeekBar.GetClientRect(r);
     m_wndSeekBar.MapWindowPoints(this, r);
     r.InflateRect(0, m_dpi.ScaleY(16));
+    if (r.top < 0) r.top = 0;
 
     if (r.PtInRect(pt)) {
         TRACE(_T("Click was inside safezone!\n"));
