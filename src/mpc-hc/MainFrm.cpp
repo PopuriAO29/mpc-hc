@@ -4876,7 +4876,7 @@ DROPEFFECT CMainFrame::OnDropAccept(COleDataObject* pDataObject, DWORD dwKeyStat
 
 BOOL IsSubtitleExtension(CString ext)
 {
-    return (ext == _T(".srt") || ext == _T(".ssa") || ext == _T(".ass") || ext == _T(".idx") || ext == _T(".sub") || ext == _T(".vtt") || ext == _T(".sup") || ext == _T(".smi") || ext == _T(".psb") || ext == _T(".usf") || ext == _T(".xss") || ext == _T(".rt")|| ext == _T(".txt"));
+    return (ext == _T(".srt") || ext == _T(".ssa") || ext == _T(".ass") || ext == _T(".idx") || ext == _T(".sub") || ext == _T(".webvtt") || ext == _T(".vtt") || ext == _T(".sup") || ext == _T(".smi") || ext == _T(".psb") || ext == _T(".usf") || ext == _T(".xss") || ext == _T(".rt")|| ext == _T(".txt"));
 }
 
 BOOL IsSubtitleFilename(CString filename)
@@ -5625,7 +5625,6 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
         UpdateWindow();
 
         HRESULT hr = m_pFS ? m_pFS->Step(1, nullptr) : E_FAIL;
-
         if (FAILED(hr)) {
             if (m_pBA) {
                 m_pBA->put_Volume(m_nVolumeBeforeFrameStepping);
@@ -5634,18 +5633,35 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
             return;
         }
 
+        bool abortloop = false;
         HANDLE hGraphEvent = nullptr;
         m_pME->GetEventHandle((OAEVENT*)&hGraphEvent);
-
-        while (hGraphEvent && WaitForSingleObject(hGraphEvent, INFINITE) == WAIT_OBJECT_0) {
-            LONG evCode = 0;
-            LONG_PTR evParam1, evParam2;
-            while (m_pME && SUCCEEDED(m_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
-                m_pME->FreeEventParams(evCode, evParam1, evParam2);
-                if (EC_STEP_COMPLETE == evCode) {
-                    hGraphEvent = nullptr;
+        while (hGraphEvent) {
+            DWORD res = WaitForSingleObject(hGraphEvent, 5000);
+            if (res == WAIT_OBJECT_0) {
+                LONG evCode = 0;
+                LONG_PTR evParam1, evParam2;
+                while (m_pME && SUCCEEDED(m_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
+                    m_pME->FreeEventParams(evCode, evParam1, evParam2);
+                    if (EC_STEP_COMPLETE == evCode) {
+                        hGraphEvent = nullptr;
+                    }
+                }
+            } else {
+                hGraphEvent = nullptr;
+                if (res == WAIT_TIMEOUT) {
+                    // Likely a seek failure has occurred. For example due to an incomplete file.
+                    REFERENCE_TIME rtCur = 0;
+                    m_pMS->GetCurrentPosition(&rtCur);
+                    if (rtCur >= rtDur) {
+                        abortloop = true;
+                    }
                 }
             }
+        }
+
+        if (abortloop) {
+            break;
         }
 
         int col = (i - 1) % cols;
@@ -5656,7 +5672,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
 
         CRenderedTextSubtitle rts(&csSubLock);
         rts.CreateDefaultStyle(0);
-        rts.m_dstScreenSize.SetSize(width, height);
+        rts.m_storageRes.SetSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
         style->marginRect.SetRectEmpty();
         rts.AddStyle(_T("thumbs"), style);
@@ -5747,7 +5763,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     {
         CRenderedTextSubtitle rts(&csSubLock);
         rts.CreateDefaultStyle(0);
-        rts.m_dstScreenSize.SetSize(width, height);
+        rts.m_storageRes.SetSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
         // Use System UI font.
         CFont tempFont;
@@ -6080,7 +6096,7 @@ void CMainFrame::OnFileSubtitlesLoad()
         dwFlags |= OFN_DONTADDTORECENT;
     }
     CString filters;
-    filters.Format(_T("%s|*.srt;*.sub;*.ssa;*.ass;*.smi;*.psb;*.txt;*.idx;*.usf;*.xss;*.rt;*.sup;*.vtt|%s"),
+    filters.Format(_T("%s|*.srt;*.sub;*.ssa;*.ass;*.smi;*.psb;*.txt;*.idx;*.usf;*.xss;*.rt;*.sup;*.webvtt;*.vtt|%s"),
                    ResStr(IDS_SUBTITLE_FILES_FILTER).GetString(), ResStr(IDS_ALL_FILES_FILTER).GetString());
 
     CFileDialog fd(TRUE, nullptr, nullptr, dwFlags, filters, GetModalParent());
@@ -6356,7 +6372,7 @@ void CMainFrame::OnUpdateViewDisplayRendererStats(CCmdUI* pCmdUI)
                       || s.iDSVideoRendererType == VIDRNDT_DS_MPCVR);
 
     pCmdUI->Enable(supported && GetLoadState() == MLS::LOADED && !m_fAudioOnly);
-    pCmdUI->SetCheck(supported && AfxGetMyApp()->m_Renderers.m_iDisplayStats);
+    pCmdUI->SetCheck(supported && AfxGetMyApp()->m_Renderers.m_iDisplayStats > 0);
 }
 
 void CMainFrame::OnViewResetRendererStats()
@@ -9173,7 +9189,8 @@ void CMainFrame::OnSubtitlesDefaultStyle()
     CAppSettings& s = AfxGetAppSettings();
     if (!m_pSubStreams.IsEmpty()) {
         s.fUseDefaultSubtitlesStyle = !s.fUseDefaultSubtitlesStyle;
-        UpdateSubDefaultStyle();
+        UpdateSubtitleRenderingParameters();
+        RepaintVideo();
     }
 }
 
@@ -9262,7 +9279,8 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
             // override default style
             // TODO: default subtitles style toggle here
             s.fUseDefaultSubtitlesStyle = !s.fUseDefaultSubtitlesStyle;
-            UpdateSubDefaultStyle();
+            UpdateSubtitleRenderingParameters();
+            RepaintVideo();
         } else if (i >= 0) {
             // this is an actual item from the subtitles list
             s.fEnableSubtitles = true;
@@ -11602,7 +11620,7 @@ void CMainFrame::MoveVideoWindow(bool fShowStats/* = false*/, bool bSetStoppedVi
 
         if (m_pCAP) {
             m_pCAP->SetPosition(windowRect, videoRect);
-            UpdateSubAspectRatioCompensation();
+            UpdateSubtitleRenderingParameters();
         } else  {
             if (m_pBV) {
                 m_pBV->SetDefaultSourcePosition();
@@ -13841,7 +13859,7 @@ void CMainFrame::OpenSetupWindowTitle(bool reset /*= false*/)
 
                 CStringW fn = GetFileName();
 
-                if (has_title & !IsNameSimilar(title, fn)) s.MRU.SetCurrentTitle(title);
+                if (has_title && !IsNameSimilar(title, fn)) s.MRU.SetCurrentTitle(title);
 
                 if (!has_title) {
                     title = fn;
@@ -16587,46 +16605,7 @@ void CMainFrame::SetSubtitle(const SubtitleInput& subInput, bool skip_lcid /* = 
             CLSID clsid;
             subInput.pSubStream->GetClassID(&clsid);
 
-            if (clsid == __uuidof(CVobSubFile) || clsid == __uuidof(CVobSubStream)) {
-                if (auto pVSS = dynamic_cast<CVobSubSettings*>((ISubStream*)subInput.pSubStream)) {
-                    pVSS->SetAlignment(s.fOverridePlacement, s.nHorPos, s.nVerPos);
-                }
-            } else if (clsid == __uuidof(CRenderedTextSubtitle)) {
-                CRenderedTextSubtitle* pRTS = (CRenderedTextSubtitle*)(ISubStream*)subInput.pSubStream;
-
-                STSStyle style = s.subtitlesDefStyle;
-
-                if (pRTS->m_fUsingAutoGeneratedDefaultStyle) {
-                    pRTS->SetDefaultStyle(style);
-                } else if (pRTS->GetDefaultStyle(style) && style.relativeTo == STSStyle::AUTO && s.subtitlesDefStyle.relativeTo != STSStyle::AUTO) {
-                    style.relativeTo = s.subtitlesDefStyle.relativeTo;
-                    pRTS->SetDefaultStyle(style);
-                }
-                if (m_pCAP) {
-                    bool bKeepAspectRatio = s.fKeepAspectRatio;
-                    CSize szAspectRatio = m_pCAP->GetVideoSize(true);
-                    CSize szVideoFrame;
-                    if (m_pMVRI) {
-                        // Use IMadVRInfo to get size. See http://bugs.madshi.net/view.php?id=180
-                        m_pMVRI->GetSize("originalVideoSize", &szVideoFrame);
-                        bKeepAspectRatio = true;
-                    } else {
-                        szVideoFrame = m_pCAP->GetVideoSize(false);
-                    }
-
-                    pRTS->m_ePARCompensationType = CSimpleTextSubtitle::EPARCompensationType::EPCTAccurateSize_ISR;
-                    if (s.bSubtitleARCompensation && szAspectRatio.cx && szAspectRatio.cy && szVideoFrame.cx && szVideoFrame.cy && bKeepAspectRatio) {
-                        pRTS->m_dPARCompensation = ((double)szAspectRatio.cx / szAspectRatio.cy) /
-                                                   ((double)szVideoFrame.cx / szVideoFrame.cy);
-                    } else {
-                        pRTS->m_dPARCompensation = 1.0;
-                    }
-                }
-
-                pRTS->SetOverride(s.fUseDefaultSubtitlesStyle, s.subtitlesDefStyle);
-                pRTS->SetAlignment(s.fOverridePlacement, s.nHorPos, s.nVerPos);
-                pRTS->Deinit();
-            }
+            UpdateSubtitleRenderingParameters();
         }
 
         m_pCurrentSubInput = subInput;
@@ -20025,78 +20004,73 @@ bool CMainFrame::GetDecoderType(CString& type) const
     return false;
 }
 
-void CMainFrame::UpdateSubOverridePlacement()
+void CMainFrame::UpdateSubtitleRenderingParameters()
 {
+    if (!m_pCAP) {
+        return;
+    }
+
     const CAppSettings& s = AfxGetAppSettings();
     if (auto pRTS = dynamic_cast<CRenderedTextSubtitle*>((ISubStream*)m_pCurrentSubInput.pSubStream)) {
+        bool bChangeStorageRes = false;
+        bool bChangePARComp = false;
+        double dPARCompensation = 1.0;
+        bool bKeepAspectRatio = s.fKeepAspectRatio;
+
+        CSize szAspectRatio = m_pCAP->GetVideoSize(true);
+        CSize szVideoFrame;
+        if (m_pMVRI) {
+            // Use IMadVRInfo to get size. See http://bugs.madshi.net/view.php?id=180
+            m_pMVRI->GetSize("originalVideoSize", &szVideoFrame);
+            bKeepAspectRatio = true;
+        } else {
+            szVideoFrame = m_pCAP->GetVideoSize(false);
+        }
+
+        if (s.bSubtitleARCompensation && szAspectRatio.cx && szAspectRatio.cy && szVideoFrame.cx && szVideoFrame.cy && bKeepAspectRatio) {
+            if (pRTS->m_layoutRes.cx > 0) {
+                dPARCompensation = (double)szAspectRatio.cx * pRTS->m_layoutRes.cy / (szAspectRatio.cy * pRTS->m_layoutRes.cx);
+            } else if (pRTS->m_layoutRes != szVideoFrame) {
+                dPARCompensation = (double)szAspectRatio.cx * szVideoFrame.cy / (szAspectRatio.cy * szVideoFrame.cx);
+            }
+        }
+        if (pRTS->m_dPARCompensation != dPARCompensation) {
+            bChangePARComp = true;
+        }
+
+        if (pRTS->m_subtitleType == Subtitle::ASS || pRTS->m_subtitleType == Subtitle::SSA) {
+            if (pRTS->m_layoutRes.cx == 0 && !s.fUseDefaultSubtitlesStyle && szVideoFrame.cx > 0 && szVideoFrame != pRTS->m_storageRes) {
+                bChangeStorageRes = true;
+            }
+        }
+
         {
             CAutoLock cAutoLock(&m_csSubLock);
-
+            if (bChangeStorageRes) {
+                pRTS->m_storageRes = szVideoFrame;
+            }
+            if (bChangePARComp) {
+                pRTS->m_ePARCompensationType = CSimpleTextSubtitle::EPARCompensationType::EPCTAccurateSize_ISR;
+                pRTS->m_dPARCompensation = dPARCompensation;
+            }
+            STSStyle style = s.subtitlesDefStyle;
+            if (pRTS->m_fUsingAutoGeneratedDefaultStyle) {
+                pRTS->SetDefaultStyle(style);
+            } else if (pRTS->GetDefaultStyle(style) && style.relativeTo == STSStyle::AUTO && s.subtitlesDefStyle.relativeTo != STSStyle::AUTO) {
+                style.relativeTo = s.subtitlesDefStyle.relativeTo;
+                pRTS->SetDefaultStyle(style);
+            }
+            pRTS->SetOverride(s.fUseDefaultSubtitlesStyle, s.subtitlesDefStyle);
             pRTS->SetAlignment(s.fOverridePlacement, s.nHorPos, s.nVerPos);
             pRTS->Deinit();
         }
-        InvalidateSubtitle();
+        m_pCAP->Invalidate();
     } else if (auto pVSS = dynamic_cast<CVobSubSettings*>((ISubStream*)m_pCurrentSubInput.pSubStream)) {
         {
             CAutoLock cAutoLock(&m_csSubLock);
-
             pVSS->SetAlignment(s.fOverridePlacement, s.nHorPos, s.nVerPos);
         }
-        InvalidateSubtitle();
-    }
-}
-
-void CMainFrame::UpdateSubDefaultStyle()
-{
-    const CAppSettings& s = AfxGetAppSettings();
-    if (auto pRTS = dynamic_cast<CRenderedTextSubtitle*>((ISubStream*)m_pCurrentSubInput.pSubStream)) {
-        {
-            CAutoLock cAutoLock(&m_csSubLock);
-
-            pRTS->SetOverride(s.fUseDefaultSubtitlesStyle, s.subtitlesDefStyle);
-            pRTS->Deinit();
-        }
-        InvalidateSubtitle();
-    }
-}
-
-void CMainFrame::UpdateSubAspectRatioCompensation()
-{
-    const CAppSettings& s = AfxGetAppSettings();
-    if (auto pRTS = dynamic_cast<CRenderedTextSubtitle*>((ISubStream*)m_pCurrentSubInput.pSubStream)) {
-        CAutoLock autoLockSubtitleManagement(&m_csSubtitleManagementLock);
-
-        bool bInvalidate = false;
-        double dPARCompensation = 1.0;
-        if (m_pCAP) {
-            bool bKeepAspectRatio = s.fKeepAspectRatio;
-            CSize szAspectRatio = m_pCAP->GetVideoSize(true);
-            CSize szVideoFrame;
-            if (m_pMVRI) {
-                // Use IMadVRInfo to get size. See http://bugs.madshi.net/view.php?id=180
-                m_pMVRI->GetSize("originalVideoSize", &szVideoFrame);
-                bKeepAspectRatio = true;
-            } else {
-                szVideoFrame = m_pCAP->GetVideoSize(false);
-            }
-
-            if (s.bSubtitleARCompensation && szAspectRatio.cx && szAspectRatio.cy && szVideoFrame.cx && szVideoFrame.cy && bKeepAspectRatio) {
-                dPARCompensation = ((double)szAspectRatio.cx / szAspectRatio.cy) /
-                                   ((double)szVideoFrame.cx / szVideoFrame.cy);
-            }
-        }
-
-        pRTS->m_ePARCompensationType = CSimpleTextSubtitle::EPARCompensationType::EPCTAccurateSize_ISR;
-        if (pRTS->m_dPARCompensation != dPARCompensation) {
-            CAutoLock autoLock(&m_csSubLock);
-            bInvalidate = true;
-            pRTS->m_dPARCompensation = dPARCompensation;
-            pRTS->Deinit();
-        }
-
-        if (bInvalidate) {
-            InvalidateSubtitle();
-        }
+        m_pCAP->Invalidate();
     }
 }
 
