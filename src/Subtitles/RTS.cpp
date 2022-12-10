@@ -206,13 +206,18 @@ void CWord::Paint(const CPoint& p, const CPoint& org)
 
 void CWord::Transform(CPoint org)
 {
+    if ((fabs(m_style.fontAngleX) > 0.000001) || (fabs(m_style.fontAngleY) > 0.000001) || (fabs(m_style.fontAngleZ) > 0.000001) ||
+        (fabs(m_style.fontShiftX) > 0.000001) || (fabs(m_style.fontShiftY) > 0.000001)) {
 #if defined(_M_IX86_FP) && _M_IX86_FP < 2
-    if (!m_bUseSSE2) {
-        Transform_C(org);
-    } else
+        if (!m_bUseSSE2) {
+            Transform_C(org);
+        } else
 #endif
-    {
-        Transform_SSE2(org);
+        {
+            Transform_SSE2(org);
+        }
+    } else if ((fabs(m_style.fontScaleX - 100) > 0.000001) || (fabs(m_style.fontScaleY - 100) > 0.000001) || (fabs(m_scalex - 1.0) > 0.000001) || (fabs(m_scaley - 1.0) > 0.000001)) {
+        Transform_quick(org);
     }
 }
 
@@ -298,6 +303,32 @@ void CWord::Transform_C(const CPoint& org)
 
         x = xx * xzoomf / std::max((zz + xzoomf), 1000.0);
         y = yy * yzoomf / std::max((zz + yzoomf), 1000.0);
+
+        // round to integer
+        mpPathPoints[i].x = std::lround(x) + org.x;
+        mpPathPoints[i].y = std::lround(y) + org.y;
+    }
+}
+
+void CWord::Transform_quick(const CPoint& org)
+{
+    const double scalex = m_style.fontScaleX / 100.0;
+    const double scaley = m_style.fontScaleY / 100.0;
+    const double xzoomf = m_scalex * 20000.0;
+    const double yzoomf = m_scaley * 20000.0;
+    const double xzoomfdiv = std::max((xzoomf), 1000.0);
+    const double yzoomfdiv = std::max((yzoomf), 1000.0);
+
+    double dOrgX = static_cast<double>(org.x), dOrgY = static_cast<double>(org.y);
+    for (ptrdiff_t i = 0; i < mPathPoints; i++) {
+        double x, y, z;
+
+        x = scalex * mpPathPoints[i].x - dOrgX;
+        y = scaley * mpPathPoints[i].y - dOrgY;
+        z = 0;
+
+        x = x * xzoomf / xzoomfdiv;
+        y = y * yzoomf / yzoomfdiv;
 
         // round to integer
         mpPathPoints[i].x = std::lround(x) + org.x;
@@ -2747,6 +2778,15 @@ CSubtitle* CRenderedTextSubtitle::GetSubtitle(int entry)
 
     CStringW str = GetStrW(entry, true);
 
+    if (m_playRes.cx <= 0 || m_playRes.cy <= 0) {
+        ASSERT(false);
+        m_playRes = CSize(384, 288);
+    }
+    if (m_storageRes.cx <= 0 || m_storageRes.cy <= 0) {
+        ASSERT(false);
+        m_storageRes = m_playRes;
+    }
+
     STSStyle stss;
     bool fScaledBAS = m_fScaledBAS;
     if (m_bOverrideStyle) {
@@ -3432,30 +3472,39 @@ STDMETHODIMP CRenderedTextSubtitle::GetStreamInfo(int iStream, WCHAR** ppName, L
         *pLCID = m_lcid;
     }
 
-    CString strLanguage;
-    if (m_lcid && m_lcid != LCID(-1)) {
-        WCHAR dispName[1024];
-        memset(dispName, 0, 1024 * sizeof(WCHAR));
-        if (0 == GetLocaleInfoEx(m_langname, LOCALE_SLOCALIZEDDISPLAYNAME, (LPWSTR)&dispName, 1024)) {
-            int len = GetLocaleInfo(m_lcid, LOCALE_SENGLANGUAGE, strLanguage.GetBuffer(64), 64);
-            strLanguage.ReleaseBufferSetLength(std::max(len - 1, 0));
-        } else {
-            strLanguage = dispName;
-        }
-    }
-
-    if (strLanguage.IsEmpty() && !m_langname.IsEmpty()) {
-        strLanguage = m_langname;
-    }
-
-    if (!strLanguage.IsEmpty() && m_eHearingImpaired == Subtitle::HI_YES) {
-        strLanguage = '[' + strLanguage + ']';
-    }
     CStringW strName;
-    if (!m_provider.IsEmpty()) {
-        strName.Format(L"[%s] %s\t%s", m_provider.GetString(), m_name.GetString(), strLanguage.GetString());
+    if (m_langname.IsEmpty()) {
+        if (!m_provider.IsEmpty()) {
+            strName.Format(L"[%s] %s", m_provider.GetString(), m_name.GetString());
+        } else {
+            strName.Format(L"%s", m_name.GetString());
+        }
     } else {
-        strName.Format(L"%s\t%s", m_name.GetString(), strLanguage.GetString());
+        CString strLanguage;
+        if (m_lcid && m_lcid != LCID(-1)) {
+            WCHAR dispName[1024];
+            memset(dispName, 0, 1024 * sizeof(WCHAR));
+            if (0 == GetLocaleInfoEx(m_langname, LOCALE_SLOCALIZEDLANGUAGENAME, (LPWSTR)&dispName, 1024)) {
+                int len = GetLocaleInfo(m_lcid, LOCALE_SENGLANGUAGE, strLanguage.GetBuffer(64), 64);
+                strLanguage.ReleaseBufferSetLength(std::max(len - 1, 0));
+            } else {
+                strLanguage = dispName;
+            }
+        }
+
+        if (strLanguage.IsEmpty()) {
+            strLanguage = m_langname;
+        }
+
+        if (!strLanguage.IsEmpty() && m_eHearingImpaired == Subtitle::HI_YES) {
+            strLanguage = strLanguage + L" [HI]";
+        }
+
+        if (!m_provider.IsEmpty()) {
+            strName.Format(L"[%s] %s\t%s", m_provider.GetString(), m_name.GetString(), strLanguage.GetString());
+        } else {
+            strName.Format(L"%s\t%s", m_name.GetString(), strLanguage.GetString());
+        }
     }
 
     *ppName = (WCHAR*)CoTaskMemAlloc((strName.GetLength() + 1) * sizeof(WCHAR));

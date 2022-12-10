@@ -3821,7 +3821,7 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
     }
 
     // process /pns command-line arg, then discard it
-    ApplyPanNScanPresetCommandLine();
+    ApplyPanNScanPresetString();
 
     // initiate toolbars with the new media
     OpenSetupInfoBar();
@@ -5672,7 +5672,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
 
         CRenderedTextSubtitle rts(&csSubLock);
         rts.CreateDefaultStyle(0);
-        rts.m_storageRes.SetSize(width, height);
+        rts.m_storageRes = rts.m_playRes = CSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
         style->marginRect.SetRectEmpty();
         rts.AddStyle(_T("thumbs"), style);
@@ -5763,7 +5763,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     {
         CRenderedTextSubtitle rts(&csSubLock);
         rts.CreateDefaultStyle(0);
-        rts.m_storageRes.SetSize(width, height);
+        rts.m_storageRes = rts.m_playRes = CSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
         // Use System UI font.
         CFont tempFont;
@@ -6139,6 +6139,10 @@ void CMainFrame::OnUpdateFileSubtitlesLoad(CCmdUI* pCmdUI)
 
 void CMainFrame::SubtitlesSave(const TCHAR* directory, bool silent)
 {
+    if (lastOpenFile.IsEmpty()) {
+        return;
+    }
+
     CAppSettings& s = AfxGetAppSettings();
 
     int i = 0;
@@ -6153,14 +6157,13 @@ void CMainFrame::SubtitlesSave(const TCHAR* directory, bool silent)
     }
 
     CString suggestedFileName;
-    CString curfile = m_wndPlaylistBar.GetCurFileName();
-    if (PathUtils::IsURL(curfile)) {
+    if (PathUtils::IsURL(lastOpenFile)) {
         if (silent) {
             return;
         }
         suggestedFileName = _T("subtitle");
     } else {
-        CPath path(curfile);
+        CPath path(lastOpenFile);
         path.RemoveExtension();
         suggestedFileName = CString(path);
     }
@@ -7810,7 +7813,7 @@ void CMainFrame::OnUpdateViewPanNScan(CCmdUI* pCmdUI)
     pCmdUI->Enable(GetLoadState() == MLS::LOADED && !m_fAudioOnly && AfxGetAppSettings().iDSVideoRendererType != VIDRNDT_DS_EVR);
 }
 
-void CMainFrame::ApplyPanNScanPresetCommandLine()
+void CMainFrame::ApplyPanNScanPresetString()
 {
     auto& s = AfxGetAppSettings();
 
@@ -13203,6 +13206,8 @@ void CMainFrame::SetupDVDChapters()
 // Called from GraphThread
 void CMainFrame::OpenDVD(OpenDVDData* pODD)
 {
+    lastOpenFile.Empty();
+
     HRESULT hr = m_pGB->RenderFile(CStringW(pODD->path), nullptr);
 
     CAppSettings& s = AfxGetAppSettings();
@@ -13289,6 +13294,8 @@ void CMainFrame::OpenDVD(OpenDVDData* pODD)
 // Called from GraphThread
 HRESULT CMainFrame::OpenBDAGraph()
 {
+    lastOpenFile.Empty();
+
     HRESULT hr = m_pGB->RenderFile(L"", L"");
     if (SUCCEEDED(hr)) {
         SetPlaybackMode(PM_DIGITAL_CAPTURE);
@@ -13300,6 +13307,8 @@ HRESULT CMainFrame::OpenBDAGraph()
 // Called from GraphThread
 void CMainFrame::OpenCapture(OpenDeviceData* pODD)
 {
+    lastOpenFile.Empty();
+
     m_wndCaptureBar.InitControls();
 
     CStringW vidfrname, audfrname;
@@ -16306,7 +16315,6 @@ bool CMainFrame::LoadSubtitle(CString fn, SubtitleInput* pSubInput /*= nullptr*/
             SubRendererSettings srs = AfxGetAppSettings().GetSubRendererSettings();
             pRTS->SetSubRenderSettings(srs);
 #endif
-            pRTS->SetDefaultStyle(s.subtitlesDefStyle);
             if (pRTS->Open(fn, DEFAULT_CHARSET, _T(""), videoName) && pRTS->GetStreamCount() > 0) {
 #if USE_LIBASS
                 pRTS->SetFilterGraph(m_pGB);
@@ -16411,7 +16419,6 @@ bool CMainFrame::LoadSubtitle(CYoutubeDLInstance::YDLSubInfo& sub) {
         SubRendererSettings srs = AfxGetAppSettings().GetSubRendererSettings();
         pRTS->SetSubRenderSettings(srs);
 #endif
-        pRTS->SetDefaultStyle(s.subtitlesDefStyle);
         bool opened = false;
         if (!sub.url.IsEmpty()) {
             SubtitlesProvidersUtils::stringMap strmap{};
@@ -16601,9 +16608,6 @@ void CMainFrame::SetSubtitle(const SubtitleInput& subInput, bool skip_lcid /* = 
             if (!found) {
                 return;
             }
-
-            CLSID clsid;
-            subInput.pSubStream->GetClassID(&clsid);
 
             UpdateSubtitleRenderingParameters();
         }
@@ -18616,6 +18620,10 @@ void CMainFrame::ProcessAPICommand(COPYDATASTRUCT* pCDS)
         case CMD_SETSPEED:
             SetPlayingRate(_wtof((LPCWSTR)pCDS->lpData));
             break;
+        case CMD_SETPANSCAN:
+            AfxGetAppSettings().strPnSPreset = (LPCWSTR)pCDS->lpData;
+            ApplyPanNScanPresetString();
+            break;
         case CMD_OSDSHOWMESSAGE:
             ShowOSDCustomMessageApi((MPC_OSDDATA*)pCDS->lpData);
             break;
@@ -20030,7 +20038,7 @@ void CMainFrame::UpdateSubtitleRenderingParameters()
         if (s.bSubtitleARCompensation && szAspectRatio.cx && szAspectRatio.cy && szVideoFrame.cx && szVideoFrame.cy && bKeepAspectRatio) {
             if (pRTS->m_layoutRes.cx > 0) {
                 dPARCompensation = (double)szAspectRatio.cx * pRTS->m_layoutRes.cy / (szAspectRatio.cy * pRTS->m_layoutRes.cx);
-            } else if (pRTS->m_layoutRes != szVideoFrame) {
+            } else {
                 dPARCompensation = (double)szAspectRatio.cx * szVideoFrame.cy / (szAspectRatio.cy * szVideoFrame.cx);
             }
         }
@@ -20054,7 +20062,7 @@ void CMainFrame::UpdateSubtitleRenderingParameters()
                 pRTS->m_dPARCompensation = dPARCompensation;
             }
             STSStyle style = s.subtitlesDefStyle;
-            if (pRTS->m_fUsingAutoGeneratedDefaultStyle) {
+            if (pRTS->m_bUsingPlayerDefaultStyle) {
                 pRTS->SetDefaultStyle(style);
             } else if (pRTS->GetDefaultStyle(style) && style.relativeTo == STSStyle::AUTO && s.subtitlesDefStyle.relativeTo != STSStyle::AUTO) {
                 style.relativeTo = s.subtitlesDefStyle.relativeTo;
@@ -20165,7 +20173,6 @@ LRESULT CMainFrame::OnLoadSubtitles(WPARAM wParam, LPARAM lParam)
         SubRendererSettings srs = AfxGetAppSettings().GetSubRendererSettings();
         pRTS->SetSubRenderSettings(srs);
 #endif
-        pRTS->SetDefaultStyle(AfxGetAppSettings().subtitlesDefStyle);
         if (pRTS->Open(CString(data.pSubtitlesInfo->Provider()->Name().c_str()),
             (BYTE*)(LPCSTR)data.fileContents.c_str(), (int)data.fileContents.length(), DEFAULT_CHARSET,
             UTF8To16(data.fileName.c_str()), Subtitle::HearingImpairedType(data.pSubtitlesInfo->hearingImpaired),
@@ -20174,11 +20181,10 @@ LRESULT CMainFrame::OnLoadSubtitles(WPARAM wParam, LPARAM lParam)
 #if USE_LIBASS
             pRTS->SetFilterGraph(m_pGB);
 #endif
-
             SubtitleInput subElement = pRTS.Detach();
             m_pSubStreams.AddTail(subElement);
             if (data.bActivate) {
-            m_ExternalSubstreams.push_back(subElement.pSubStream);
+                m_ExternalSubstreams.push_back(subElement.pSubStream);
                 SetSubtitle(subElement.pSubStream);
             }
             return TRUE;
