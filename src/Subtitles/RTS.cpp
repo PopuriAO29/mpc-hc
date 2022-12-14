@@ -2259,7 +2259,7 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
             case SSA_blur:
                 if (!tag.paramsReal.IsEmpty()) {
                     double n = CalcAnimation(tag.paramsReal[0], style.fGaussianBlur, fAnimate);
-                    style.fGaussianBlur = (n < 0 ? 0 : n);
+                    style.fGaussianBlur = (n < 0 ? 0 : n * sub->m_target_scale_y);
                 } else {
                     style.fGaussianBlur = org.fGaussianBlur;
                 }
@@ -2300,8 +2300,9 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
                     if (scale < 1) {
                         scale = 1;
                     }
+                    long scalediv = (1 << (scale - 1));
                     sub->m_pClipper = std::make_shared<CClipper>(tag.params[0], CSize(m_size.cx >> 3, m_size.cy >> 3),
-                                                                 sub->m_total_scale_x / (1 << (scale - 1)), sub->m_total_scale_y / (1 << (scale - 1)), invert,
+                                                                 sub->m_total_scale_x / scalediv, sub->m_total_scale_y / scalediv, invert,
                                                                  (sub->m_relativeTo == STSStyle::VIDEO) ? CPoint(m_vidrect.left, m_vidrect.top) : CPoint(0, 0),
                                                                  m_renderingCaches);
                 } else if (nParamsInt == 4) {
@@ -2859,8 +2860,8 @@ CSubtitle* CRenderedTextSubtitle::GetSubtitle(int entry)
         sub->m_total_scale_x = sub->m_target_scale_x;
         sub->m_total_scale_y = sub->m_target_scale_y;
     } else {
-        sub->m_script_scale_x = m_storageRes.cx / m_playRes.cx;
-        sub->m_script_scale_y = m_storageRes.cy / m_playRes.cy;
+        sub->m_script_scale_x = static_cast<double>(m_storageRes.cx) / m_playRes.cx;
+        sub->m_script_scale_y = static_cast<double>(m_storageRes.cy) / m_playRes.cy;
         sub->m_total_scale_x = sub->m_target_scale_x * sub->m_script_scale_x;
         sub->m_total_scale_y = sub->m_target_scale_y * sub->m_script_scale_y;
     }
@@ -2956,10 +2957,10 @@ CSubtitle* CRenderedTextSubtitle::GetSubtitle(int entry)
 
         tmp.fontSize      *= sub->m_total_scale_y * 64.0;
         tmp.fontSpacing   *= sub->m_total_scale_x * 64.0;
-        tmp.outlineWidthX *= (fScaledBAS ? sub->m_total_scale_x : 1.0) * 8.0;
-        tmp.outlineWidthY *= (fScaledBAS ? sub->m_total_scale_y : 1.0) * 8.0;
-        tmp.shadowDepthX  *= (fScaledBAS ? sub->m_total_scale_x : 1.0) * 8.0;
-        tmp.shadowDepthY  *= (fScaledBAS ? sub->m_total_scale_y : 1.0) * 8.0;
+        tmp.outlineWidthX *= (fScaledBAS ? sub->m_total_scale_x : sub->m_script_scale_x) * 8.0;
+        tmp.outlineWidthY *= (fScaledBAS ? sub->m_total_scale_y : sub->m_script_scale_y) * 8.0;
+        tmp.shadowDepthX  *= (fScaledBAS ? sub->m_total_scale_x : sub->m_script_scale_x) * 8.0;
+        tmp.shadowDepthY  *= (fScaledBAS ? sub->m_total_scale_y : sub->m_script_scale_y) * 8.0;
 
         if (m_nPolygon) {
             ParsePolygon(sub, str.Mid(iStart, iEnd - iStart), tmp);
