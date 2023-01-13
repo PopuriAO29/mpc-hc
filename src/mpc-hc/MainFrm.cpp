@@ -5799,7 +5799,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
         CStringW fs;
         CString curfile = m_wndPlaylistBar.GetCurFileName();
         if (!PathUtils::IsURL(curfile)) {
-            ExtendMaxPathLengthIfNeeded(curfile, MAX_PATH, true);
+            ExtendMaxPathLengthIfNeeded(curfile, true);
             WIN32_FIND_DATA wfd;
             HANDLE hFind = FindFirstFile(curfile, &wfd);
             if (hFind != INVALID_HANDLE_VALUE) {
@@ -8965,6 +8965,9 @@ void CMainFrame::SetAudioDelay(REFERENCE_TIME rtShift)
 void CMainFrame::SetSubtitleDelay(int delay_ms, bool relative)
 {
     if (!m_pCAP && !m_pDVS) {
+        if (GetLoadState() == MLS::LOADED) {
+            SendStatusMessage(L"Delay is not supported by current subtitle renderer", 3000);
+        }
         return;
     }
 
@@ -14713,7 +14716,7 @@ void CMainFrame::CloseMediaPrivate()
 bool CMainFrame::WildcardFileSearch(CString searchstr, std::set<CString, CStringUtils::LogicalLess>& results)
 {
     // support very long paths
-    ExtendMaxPathLengthIfNeeded(searchstr, MAX_PATH);
+    ExtendMaxPathLengthIfNeeded(searchstr);
 
     CFileFind finder;
     if (finder.FindFile(searchstr)) {
@@ -16344,7 +16347,7 @@ bool CMainFrame::LoadSubtitle(CString fn, SubtitleInput* pSubInput /*= nullptr*/
 
         // Temporarily load fonts from 'Fonts' folder - Begin
         CString path = PathUtils::DirName(fn) + L"\\fonts\\";
-        ExtendMaxPathLengthIfNeeded(path, MAX_PATH);
+        ExtendMaxPathLengthIfNeeded(path);
 
         if (::PathIsDirectory(path)) {
             WIN32_FIND_DATA fd = {0};
