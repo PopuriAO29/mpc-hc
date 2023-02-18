@@ -2697,10 +2697,8 @@ void CMainFrame::GraphEventComplete()
         PerformABRepeat();
     } else if (s.fLoopForever || m_nLoops < s.nLoops) {
         if (bBreak) {
-            m_bRememberFilePos = false;
             DoAfterPlaybackEvent();
         } else if ((m_wndPlaylistBar.GetCount() > 1) && (s.eLoopMode == CAppSettings::LoopMode::PLAYLIST)) {
-            m_bRememberFilePos = false;
             int nLoops = m_nLoops;
             SendMessage(WM_COMMAND, ID_NAVIGATE_SKIPFORWARDFILE);
             m_nLoops = nLoops;
@@ -2719,7 +2717,6 @@ void CMainFrame::GraphEventComplete()
             }
         }
     } else {
-        m_bRememberFilePos = false;
         DoAfterPlaybackEvent();
     }
 }
@@ -12886,7 +12883,7 @@ void CMainFrame::SetupExternalChapters()
     // - Located in same folder as the audio/video file, and has same base filename.
     // - It will override chapter metadata that is embedded in the file.
     // - Each line defines a chapter: timecode, optionally followed by a space and chapter title.
-    // - Timecode must be in this format: HH:MM:SS,ddd
+    // - Timecode must be in this format: HH:MM:SS.ddd or HH:MM:SS,ddd
 
     CPlaylistItem* pli = m_wndPlaylistBar.GetCur();
     if (!pli) {
@@ -12924,7 +12921,7 @@ void CMainFrame::SetupExternalChapters()
             int lMinute = 0;
             int lSecond = 0;
             int lMillisec = 0;
-            if (_stscanf_s(str.Left(12), _T("%02d:%02d:%02d,%03d"), &lHour, &lMinute, &lSecond, &lMillisec) == 4) {
+            if (_stscanf_s(str.Left(12), _T("%02d:%02d:%02d[,.]+%03d"), &lHour, &lMinute, &lSecond, &lMillisec) == 4) {
                 rt = ((((lHour * 60) + lMinute) * 60 + lSecond) * MILLISECONDS + lMillisec) * (UNITS / MILLISECONDS);
                 if (str.GetLength() > 12) {
                     name = str.Mid(12);
@@ -17790,6 +17787,13 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
             auto& s = AfxGetAppSettings();
             REFERENCE_TIME rtNow = 0;
             m_pMS->GetCurrentPosition(&rtNow);
+            if (rtNow > 0) {
+                REFERENCE_TIME rtDur = 0;
+                m_pMS->GetDuration(&rtDur);
+                if (rtNow > rtDur || rtDur - rtNow < 50000000LL) { // at end of file
+                    rtNow = 0;
+                }
+            }
             s.MRU.UpdateCurrentFilePosition(rtNow, true);
         }
 
