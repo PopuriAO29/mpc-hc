@@ -158,6 +158,20 @@ void CPlayerPlaylistBar::SetHiddenDueToFullscreen(bool bHiddenDueToFullscreen)
     m_bHiddenDueToFullscreen = bHiddenDueToFullscreen;
 }
 
+void CPlayerPlaylistBar::AddItem(CString fn)
+{
+    if (fn.IsEmpty()) {
+        return;
+    }
+
+    CPlaylistItem pli;
+    pli.m_fns.AddTail(fn);
+
+    pli.AutoLoadFiles();
+
+    m_pl.AddTail(pli);
+}
+
 void CPlayerPlaylistBar::AddItem(CString fn, CAtlList<CString>* subs)
 {
     CAtlList<CString> sl;
@@ -292,13 +306,13 @@ bool CPlayerPlaylistBar::AddItemNoDuplicate(CString fn)
     return true;
 }
 
-bool CPlayerPlaylistBar::AddFromFilemask(CString mask)
+bool CPlayerPlaylistBar::AddFromFilemask(CString mask, bool recurse_dirs)
 {
     ASSERT(ContainsWildcard(mask));
     bool added = false;
 
     std::set<CString, CStringUtils::LogicalLess> filelist;
-    if (m_pMainFrame->WildcardFileSearch(mask, filelist, true)) {
+    if (m_pMainFrame->WildcardFileSearch(mask, filelist, recurse_dirs)) {
         auto it = filelist.begin();
         while (it != filelist.end()) {
             if (AddItemNoDuplicate(*it)) {
@@ -314,7 +328,7 @@ bool CPlayerPlaylistBar::AddFromFilemask(CString mask)
 bool CPlayerPlaylistBar::AddItemsInFolder(CString pathname)
 {
     CString mask = CString(pathname).TrimRight(_T("\\/")) + _T("\\*.*");
-    return AddFromFilemask(mask);
+    return AddFromFilemask(mask, false);
 }
 
 void CPlayerPlaylistBar::ParsePlayList(CAtlList<CString>& fns, CAtlList<CString>* subs, int redir_count, CString label, CString ydl_src, CString cue, CAtlList<CYoutubeDLInstance::YDLSubInfo>* ydl_subs)
@@ -336,7 +350,7 @@ void CPlayerPlaylistBar::ParsePlayList(CAtlList<CString>& fns, CAtlList<CString>
             CString fname = fns.GetHead();
             if (!PathUtils::IsURL(fname)) {
                 if (ContainsWildcard(fname)) {
-                    AddFromFilemask(fname);
+                    AddFromFilemask(fname, true);
                     return;
                 } else if (PathUtils::IsDir(fname)) {
                     AddItemsInFolder(fname);

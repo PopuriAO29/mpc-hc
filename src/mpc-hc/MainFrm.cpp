@@ -9290,7 +9290,7 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
 
                             for (size_t l = 0; l < pages.GetCount(); l++) {
                                 pages[l]->GetStyle(*styles[l]);
-                                if (pages[l]->GetStyleName() == L"Default") {
+                                if (pRTS->m_bUsingPlayerDefaultStyle && pages[l]->GetStyleName() == L"Default") {
                                     if (*styles[l] != s.subtitlesDefStyle) {
                                         pRTS->m_bUsingPlayerDefaultStyle = false;
                                     }
@@ -14500,7 +14500,9 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
                 abRepeat = pFileData->abRepeat;
             }
             if (m_dwReloadPos > 0) {
-                rtPos = m_dwReloadPos;
+                if (m_dwReloadPos < rtDur) {
+                    rtPos = m_dwReloadPos;
+                }
                 m_dwReloadPos = 0;
             }
             if (reloadABRepeat) {
@@ -14515,6 +14517,9 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
                 if (pMRU->rfe_array.GetCount()) {
                     if (!rtPos) {
                         rtPos = pMRU->GetCurrentFilePosition();
+                        if (rtPos >= rtDur || rtDur - rtPos < 50000000LL) {
+                            rtPos = 0;
+                        }
                     }
                     if (!abRepeat) {
                         abRepeat = pMRU->GetCurrentABRepeat();
@@ -17893,7 +17898,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
             if (rtNow > 0) {
                 REFERENCE_TIME rtDur = 0;
                 m_pMS->GetDuration(&rtDur);
-                if (rtNow > rtDur || rtDur - rtNow < 50000000LL) { // at end of file
+                if (rtNow >= rtDur || rtDur - rtNow < 50000000LL) { // at end of file
                     rtNow = 0;
                 }
             }
