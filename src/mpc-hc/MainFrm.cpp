@@ -9249,6 +9249,7 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
         if (CBDAChannel* pChannel = m_pDVBState->pChannel) {
             OnNavStreamSelectSubMenu(i, 2);
             pChannel->SetDefaultSubtitle(i);
+            SetSubtitle(i);
         }
     } else if (!m_pSubStreams.IsEmpty()) {
         // Currently the subtitles menu contains 5 items apart from the actual subtitles list when the ISR is used
@@ -11678,6 +11679,8 @@ void CMainFrame::MoveVideoWindow(bool fShowStats/* = false*/, bool bSetStoppedVi
 
         if (!HasDedicatedFSVideoWindow()) {
             m_wndView.SetVideoRect(&windowRect);
+        } else {
+            m_pDedicatedFSVideoWnd->SetVideoRect(&windowRect);
         }
         m_OSD.SetSize(windowRect, videoRect);
     } else {
@@ -15483,7 +15486,10 @@ void CMainFrame::SetupSubtitlesSubMenu()
     POSITION pos = m_pSubStreams.GetHeadPosition();
 
     if (GetPlaybackMode() == PM_DIGITAL_CAPTURE) {
-        SetupNavStreamSelectSubMenu(subMenu, id, 2);
+        DWORD selected = SetupNavStreamSelectSubMenu(subMenu, id, 2);
+        if (selected != -1) {
+            SetSubtitle(selected - ID_SUBTITLES_SUBITEM_START);
+        }
     } else if (pos) { // Internal subtitles renderer
         int nItemsBeforeStart = id - ID_SUBTITLES_SUBITEM_START;
         if (nItemsBeforeStart > 0) {
@@ -15516,8 +15522,8 @@ void CMainFrame::SetupSubtitlesSubMenu()
                 for (int j = 0, cnt = (int)cStreams; j < cnt; j++) {
                     DWORD dwFlags, dwGroup;
                     CComHeapPtr<WCHAR> pszName;
-
-                    if (FAILED(pSSF->Info(j, nullptr, &dwFlags, nullptr, &dwGroup, &pszName, nullptr, nullptr))
+                    LCID lcid = 0;
+                    if (FAILED(pSSF->Info(j, nullptr, &dwFlags, &lcid, &dwGroup, &pszName, nullptr, nullptr))
                             || !pszName) {
                         continue;
                     }
@@ -15538,6 +15544,12 @@ void CMainFrame::SetupSubtitlesSubMenu()
                         name.LoadString(IDS_AG_DISABLED);
                     }
                     */
+                    if (lcid != 0 && name.Find(L'\t') < 0) {
+                        CString lcidstr;
+                        GetLocaleString(lcid, LOCALE_SENGLANGUAGE, lcidstr);
+                        name.Append(_T("\t") + lcidstr);
+                    }
+
                     name.Replace(_T("&"), _T("&&"));
                     VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, name));
                     i++;
@@ -15554,10 +15566,16 @@ void CMainFrame::SetupSubtitlesSubMenu()
 
                 for (int j = 0, cnt = pSubStream->GetStreamCount(); j < cnt; j++) {
                     CComHeapPtr<WCHAR> pName;
-                    if (SUCCEEDED(pSubStream->GetStreamInfo(j, &pName, nullptr))) {
+                    LCID lcid = 0;
+                    if (SUCCEEDED(pSubStream->GetStreamInfo(j, &pName, &lcid))) {
                         CString name(pName);
-                        name.Replace(_T("&"), _T("&&"));
+                        if (lcid != 0 && name.Find(L'\t') < 0) {
+                            CString lcidstr;
+                            GetLocaleString(lcid, LOCALE_SENGLANGUAGE, lcidstr);
+                            name.Append(_T("\t") + lcidstr);
+                        }
 
+                        name.Replace(_T("&"), _T("&&"));
                         VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, name));
                     } else {
                         VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_AG_UNKNOWN_STREAM)));
@@ -15825,9 +15843,10 @@ void CMainFrame::SetupJumpToSubMenus(CMenu* parentMenu /*= nullptr*/, int iInser
     }
 }
 
-void CMainFrame::SetupNavStreamSelectSubMenu(CMenu& subMenu, UINT id, DWORD dwSelGroup)
+DWORD CMainFrame::SetupNavStreamSelectSubMenu(CMenu& subMenu, UINT id, DWORD dwSelGroup)
 {
     bool bAddSeparator = false;
+    DWORD selected = -1;
 
     auto addStreamSelectFilter = [&](CComPtr<IAMStreamSelect> pSS) {
         DWORD cStreams;
@@ -15839,8 +15858,8 @@ void CMainFrame::SetupNavStreamSelectSubMenu(CMenu& subMenu, UINT id, DWORD dwSe
         for (DWORD i = 0; i < cStreams; i++) {
             DWORD dwFlags, dwGroup;
             CComHeapPtr<WCHAR> pszName;
-
-            if (FAILED(pSS->Info(i, nullptr, &dwFlags, nullptr, &dwGroup, &pszName, nullptr, nullptr))
+            LCID lcid = 0;
+            if (FAILED(pSS->Info(i, nullptr, &dwFlags, &lcid, &dwGroup, &pszName, nullptr, nullptr))
                     || !pszName) {
                 continue;
             }
@@ -15856,10 +15875,16 @@ void CMainFrame::SetupNavStreamSelectSubMenu(CMenu& subMenu, UINT id, DWORD dwSe
                 name.LoadString(IDS_AG_DISABLED);
             }
             */
+            if (dwGroup == 2 && lcid != 0 && name.Find(L'\t') < 0) {
+                CString lcidstr;
+                GetLocaleString(lcid, LOCALE_SENGLANGUAGE, lcidstr);
+                name.Append(_T("\t") + lcidstr);
+            }
 
             UINT flags = MF_BYCOMMAND | MF_STRING | MF_ENABLED;
             if (dwFlags) {
                 flags |= MF_CHECKED;
+                selected = id;
             }
 
             if (bAddSeparator) {
@@ -15894,6 +15919,7 @@ void CMainFrame::SetupNavStreamSelectSubMenu(CMenu& subMenu, UINT id, DWORD dwSe
     if (pSS = m_pGB) {
         addStreamSelectFilter(pSS);
     }
+    return selected;
 }
 
 void CMainFrame::OnNavStreamSelectSubMenu(UINT id, DWORD dwSelGroup)
@@ -19883,6 +19909,7 @@ void CMainFrame::ReloadMenus() {
         SetMenu(defaultMPCThemeMenu);
         // and then destroy the old one
         oldMenu->DestroyMenu();
+        delete oldMenu;
     }
     //we don't detach because we retain the cmenu
     //m_hMenuDefault = defaultMenu.Detach();

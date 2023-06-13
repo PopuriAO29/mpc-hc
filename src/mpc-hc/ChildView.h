@@ -25,8 +25,6 @@
 
 class CChildView : public CMouseWndWithArtView
 {
-    CRect m_vrect;
-
     bool m_bSwitchingFullscreen;
     bool m_bFirstMedia;
 
@@ -39,9 +37,6 @@ public:
     virtual ~CChildView();
 
     DECLARE_DYNAMIC(CChildView)
-
-    void SetVideoRect(const CRect& r = CRect(0, 0, 0, 0));
-    CRect GetVideoRect() const { return m_vrect; }
 
 protected:
     virtual BOOL PreCreateWindow(CREATESTRUCT& cs);

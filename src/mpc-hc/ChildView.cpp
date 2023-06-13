@@ -28,8 +28,7 @@
 #include "ColorProfileUtil.h"
 
 CChildView::CChildView(CMainFrame* pMainFrame)
-    : m_vrect(0, 0, 0, 0)
-    , CMouseWndWithArtView(pMainFrame)
+    : CMouseWndWithArtView(pMainFrame)
     , m_bSwitchingFullscreen(false)
     , m_bFirstMedia(true)
 {
@@ -106,13 +105,6 @@ BOOL CChildView::PreTranslateMessage(MSG* pMsg)
         }
     }
     return CWnd::PreTranslateMessage(pMsg);
-}
-
-void CChildView::SetVideoRect(const CRect& r)
-{
-    m_vrect = r;
-
-    Invalidate();
 }
 
 IMPLEMENT_DYNAMIC(CChildView, CMouseWnd)
