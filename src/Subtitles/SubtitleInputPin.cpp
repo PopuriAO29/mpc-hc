@@ -29,6 +29,7 @@
 #include <uuids.h>
 #include "moreuuids.h"
 #include "../DSUtil/ISOLang.h"
+#include "../mpc-hc/mplayerc.h"
 
 // our first format id
 #define __GAB1__ "GAB1"
@@ -126,20 +127,22 @@ HRESULT CSubtitleInputPin::CompleteConnect(IPin* pReceivePin)
         name.Replace(_T(""), _T(""));
         name.Replace(_T(""), _T(""));
 
-        if (m_mt.subtype == MEDIASUBTYPE_UTF8
-                /*|| m_mt.subtype == MEDIASUBTYPE_USF*/
-                || m_mt.subtype == MEDIASUBTYPE_WEBVTT
-                || m_mt.subtype == MEDIASUBTYPE_SSA
-                || m_mt.subtype == MEDIASUBTYPE_ASS
-                || m_mt.subtype == MEDIASUBTYPE_ASS2) {
+        bool subtype_utf8 = m_mt.subtype == MEDIASUBTYPE_UTF8;
+        bool subtype_vtt  = m_mt.subtype == MEDIASUBTYPE_WEBVTT;
+        bool subtype_ass  = m_mt.subtype == MEDIASUBTYPE_SSA || m_mt.subtype == MEDIASUBTYPE_ASS || m_mt.subtype == MEDIASUBTYPE_ASS2;
+
+        if (subtype_utf8 || subtype_ass || subtype_vtt) {
             if (!(m_pSubStream = DEBUG_NEW CRenderedTextSubtitle(m_pSubLock))) {
                 return E_FAIL;
             }
+
             CRenderedTextSubtitle* pRTS = (CRenderedTextSubtitle*)(ISubStream*)m_pSubStream;
+            pRTS->SetSubtitleTypeFromGUID(m_mt.subtype);
 #if USE_LIBASS
-            if (pRTS->m_renderUsingLibass) {
+            pRTS->m_SSAUtil.SetSubRenderSettings(AfxGetAppSettings().GetSubRendererSettings());
+            if (pRTS->m_SSAUtil.m_renderUsingLibass) {
                 IFilterGraph* fg = GetGraphFromFilter(m_pFilter);
-                pRTS->SetFilterGraph(fg);
+                pRTS->m_SSAUtil.SetFilterGraph(fg);
             }
 #endif
             pRTS->m_name = name;
@@ -149,10 +152,6 @@ HRESULT CSubtitleInputPin::CompleteConnect(IPin* pReceivePin)
             }
             pRTS->m_storageRes = pRTS->m_playRes = CSize(384, 288);
             pRTS->CreateDefaultStyle(DEFAULT_CHARSET);
-
-            if (m_mt.subtype == MEDIASUBTYPE_WEBVTT) {
-                pRTS->m_subtitleType = Subtitle::VTT;
-            }
 
             if (dwOffset > 0 && m_mt.cbFormat - dwOffset > 0) {
                 CMediaType mt = m_mt;
@@ -165,17 +164,22 @@ HRESULT CSubtitleInputPin::CompleteConnect(IPin* pReceivePin)
                     mt.pbFormat[dwOffset + 2] = 0xbf;
                 }
 
-                bool succes = false;
+                bool success = false;
 #if USE_LIBASS
-                if (pRTS->m_renderUsingLibass) {
-                    pRTS->SetPin(pReceivePin);
-                    succes = pRTS->LoadASSTrack((char*)m_mt.Format() + psi->dwOffset, m_mt.FormatLength() - psi->dwOffset,
-                        m_mt.subtype == MEDIASUBTYPE_UTF8 ? Subtitle::SRT : Subtitle::ASS);
+                if (pRTS->m_SSAUtil.m_renderUsingLibass) {
+                    pRTS->m_SSAUtil.SetPin(pReceivePin);
+                    success = pRTS->m_SSAUtil.LoadASSTrack((char*)m_mt.Format() + psi->dwOffset, m_mt.FormatLength() - psi->dwOffset, subtype_ass ? Subtitle::ASS : Subtitle::SRT);
                 }
-                if (!succes || !pRTS->m_assloaded)
 #endif
-                    succes = pRTS->Open(mt.pbFormat + dwOffset, mt.cbFormat - dwOffset, DEFAULT_CHARSET, pRTS->m_name);
-                ASSERT(succes);
+#if USE_LIBASS
+                if (!success || !pRTS->m_SSAUtil.m_assloaded) {
+                    pRTS->m_SSAUtil.m_renderUsingLibass = false;
+#endif
+                    success = pRTS->Open(mt.pbFormat + dwOffset, mt.cbFormat - dwOffset, DEFAULT_CHARSET, pRTS->m_name);
+#if USE_LIBASS
+                }
+#endif
+                ASSERT(success);
             }
         } else if (m_mt.subtype == MEDIASUBTYPE_VOBSUB) {
             if (!(m_pSubStream = DEBUG_NEW CVobSubStream(m_pSubLock))) {
@@ -388,6 +392,10 @@ REFERENCE_TIME CSubtitleInputPin::DecodeSample(const std::unique_ptr<SubtitleSam
 {
     bool bInvalidate = false;
 
+    if (pSample->data.size() <= 0) {
+        return -1;
+    }
+
     if (m_mt.majortype == MEDIATYPE_Text) {
         CRenderedTextSubtitle* pRTS = (CRenderedTextSubtitle*)(ISubStream*)m_pSubStream;
 
@@ -461,18 +469,15 @@ REFERENCE_TIME CSubtitleInputPin::DecodeSample(const std::unique_ptr<SubtitleSam
                 }
             }
 #if USE_LIBASS
-            if (pRTS->m_assloaded) {
+            if (pRTS->m_SSAUtil.m_assloaded) {
                 LPCSTR data = (LPCSTR)pSample->data.data();
                 int dataSize = (int)pSample->data.size();
-                if (dataSize > 0) {
-                    IFilterGraph* fg = GetGraphFromFilter(m_pFilter);
-                    pRTS->SetFilterGraph(fg);
-                    pRTS->SetPin(this);
-                    pRTS->LoadASSSample((char*)data, dataSize, pSample->rtStart, pSample->rtStop);
-                }
+                IFilterGraph* fg = GetGraphFromFilter(m_pFilter);
+                pRTS->m_SSAUtil.SetFilterGraph(fg);
+                pRTS->m_SSAUtil.SetPin(this);
+                pRTS->m_SSAUtil.LoadASSSample((char*)data, dataSize, pSample->rtStart, pSample->rtStop);
             }
 #endif
-
         } else if (m_mt.subtype == MEDIASUBTYPE_SSA || m_mt.subtype == MEDIASUBTYPE_ASS || m_mt.subtype == MEDIASUBTYPE_ASS2) {
             CRenderedTextSubtitle* pRTS = (CRenderedTextSubtitle*)(ISubStream*)m_pSubStream;
 
@@ -502,13 +507,15 @@ REFERENCE_TIME CSubtitleInputPin::DecodeSample(const std::unique_ptr<SubtitleSam
 
                 if (!stse.str.IsEmpty()) {
                     pRTS->Add(stse.str, true, pSample->rtStart, pSample->rtStop,
-                              stse.style, stse.actor, stse.effect, stse.marginRect, stse.layer, stse.readorder);
+                        stse.style, stse.actor, stse.effect, stse.marginRect, stse.layer, stse.readorder);
                     bInvalidate = true;
                 }
 
 #if USE_LIBASS
-                if (pRTS->m_assloaded) {
-                    ass_process_chunk(pRTS->m_track.get(), (char *)pSample->data.data(), (int)pSample->data.size(), pSample->rtStart / 10000, (pSample->rtStop - pSample->rtStart) / 10000);
+                if (pRTS->m_SSAUtil.m_assloaded) {
+                    // FIXME: The code above from ISR native subtitle parser is required because the subtitle data is needed in LookupSubPic()
+                    // Improve LookupSubPic so that it does not need this info or gets it from libass instead? 
+                    ass_process_chunk(pRTS->m_SSAUtil.m_track.get(), (char*)pSample->data.data(), (int)pSample->data.size(), pSample->rtStart / 10000, (pSample->rtStop - pSample->rtStart) / 10000);
                 }
 #endif
             }

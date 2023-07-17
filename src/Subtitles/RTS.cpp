@@ -22,18 +22,17 @@
 #include "stdafx.h"
 #include <cmath>
 #include <intrin.h>
-#include <algorithm>
 #include "ColorConvTable.h"
 #include "RTS.h"
 #include "../DSUtil/PathUtils.h"
-#include <ppl.h>
 #include "../filters/renderer/VideoRenderers/RenderersSettings.h"
+#include "moreuuids.h"
+
+#define MAXGDIFONTSIZE 36000
 
 // WARNING: this isn't very thread safe, use only one RTS a time. We should use TLS in future.
 static HDC g_hDC;
 static int g_hDC_refcnt = 0;
-
-#define MAXGDIFONTSIZE 39999
 
 static long revcolor(long c)
 {
@@ -51,23 +50,6 @@ void alpha_mask_deleter::operator()(CAlphaMask* ptr) const noexcept
     }
 }
 
-
-bool GetTextExtent(HDC hdc, LPCWSTR s, int c, LPSIZE lpsz, STSStyle style) {
-    bool ret;
-    if (style.fontSize > MAXGDIFONTSIZE) {
-        double oldFontSize = style.fontSize;
-        style.fontSize = MAXGDIFONTSIZE;
-        CMyFont font(style);
-        HFONT hOldFont = SelectFont(g_hDC, font);
-        ret = GetTextExtentPoint32W(hdc, s, c, lpsz);
-        SelectFont(g_hDC, hOldFont);
-        lpsz->cx = MulDiv(lpsz->cx, oldFontSize, MAXGDIFONTSIZE);
-        lpsz->cy = MulDiv(lpsz->cy, oldFontSize, MAXGDIFONTSIZE);
-    } else {
-        ret = GetTextExtentPoint32W(hdc, s, c, lpsz);
-    }
-    return ret;
-}
 // CMyFont
 
 CMyFont::CMyFont(const STSStyle& style)
@@ -89,6 +71,17 @@ CMyFont::CMyFont(const STSStyle& style)
     }
 
     HFONT hOldFont = SelectFont(g_hDC, *this);
+
+    WCHAR selectedFontName[LF_FACESIZE];
+    GetTextFaceW(g_hDC, LF_FACESIZE, selectedFontName);
+    if (wcsncmp(selectedFontName, lf.lfFaceName, LF_FACESIZE)) { //GDI chose a different font -- let's use default instead
+        SelectFont(g_hDC, hOldFont);
+        DeleteObject();
+        _tcscpy_s(lf.lfFaceName, _T("Calibri"));
+        VERIFY(CreateFontIndirect(&lf));
+        HFONT hOldFont = SelectFont(g_hDC, *this);
+    }
+
     TEXTMETRIC tm;
     GetTextMetrics(g_hDC, &tm);
     m_ascent = ((tm.tmAscent + 4) >> 3);
@@ -120,6 +113,13 @@ CWord::CWord(const STSStyle& style, CStringW str, int ktype, int kstart, int ken
     if (str.IsEmpty()) {
         m_fWhiteSpaceChar = m_fLineBreak = true;
     }
+    if (m_style.fontSize > MAXGDIFONTSIZE) {
+        double fact = m_style.fontSize / MAXGDIFONTSIZE;
+        m_style.fontSize = MAXGDIFONTSIZE;
+        m_style.fontScaleX *= fact;
+        m_style.fontScaleY *= fact;
+    }
+
 }
 
 CWord::~CWord()
@@ -511,7 +511,7 @@ CText::CText(const STSStyle& style, CStringW str, int ktype, int kstart, int ken
         if (m_style.fontSpacing) {
             for (LPCWSTR s = m_str; *s; s++) {
                 CSize extent;
-                if (!GetTextExtent(g_hDC, s, 1, &extent, m_style)) {
+                if (!GetTextExtentPoint32W(g_hDC, s, 1, &extent)) {
                     SelectFont(g_hDC, hOldFont);
                     ASSERT(0);
                     return;
@@ -521,7 +521,7 @@ CText::CText(const STSStyle& style, CStringW str, int ktype, int kstart, int ken
             // m_width -= (int)m_style.fontSpacing; // TODO: subtract only at the end of the line
         } else {
             CSize extent;
-            if (!GetTextExtent(g_hDC, m_str, str.GetLength(), &extent, m_style)) {
+            if (!GetTextExtentPoint32W(g_hDC, m_str, str.GetLength(), &extent)) {
                 SelectFont(g_hDC, hOldFont);
                 ASSERT(0);
                 return;
@@ -559,19 +559,14 @@ bool CText::Append(CWord* w)
 
 bool CText::CreatePath()
 {
-    STSStyle tStyle(m_style);
-    if (m_style.fontSize > MAXGDIFONTSIZE) {
-        tStyle.fontSize = MAXGDIFONTSIZE;
-    }
-
-    CMyFont font(tStyle);
+    CMyFont font(m_style);
 
     HFONT hOldFont = SelectFont(g_hDC, font);
 
     LONG cx = 0;
     auto getExtent = [&](LPCWSTR s, int len) {
         CSize extent;
-        if (!GetTextExtent(g_hDC, s, len, &extent, m_style)) {
+        if (!GetTextExtentPoint32W(g_hDC, s, len, &extent)) {
             SelectFont(g_hDC, hOldFont);
             ASSERT(0);
             return false;
@@ -677,15 +672,9 @@ bool CText::CreatePath()
             }
         }
     }
+
     SelectFont(g_hDC, hOldFont);
 
-    if (m_style.fontSize > MAXGDIFONTSIZE) {
-        double fact = m_style.fontSize / MAXGDIFONTSIZE;
-        for (ptrdiff_t i = 0; i < mPathPoints; i++) {
-            mpPathPoints[i].x *= fact;
-            mpPathPoints[i].y *= fact;
-        }
-    }
     return true;
 }
 
@@ -1835,6 +1824,20 @@ void CRenderedTextSubtitle::Empty()
     Deinit();
 
     __super::Empty();
+}
+
+void CRenderedTextSubtitle::SetOverride(bool bOverride, const STSStyle& styleOverride) {
+    bool changed = (m_bOverrideStyle != bOverride) || (m_styleOverride != styleOverride);
+    if (changed) {
+        m_bOverrideStyle = bOverride;
+        m_styleOverride = styleOverride;
+        if (bOverride) {
+            m_storageRes = m_playRes; // needed to get correct font scaling with default style
+        }
+#if USE_LIBASS
+        m_SSAUtil.ResetASS(); //styles may change the way the libass file was loaded, so we reload it here
+#endif
+    }
 }
 
 void CRenderedTextSubtitle::OnChanged()
@@ -3175,54 +3178,6 @@ struct LSub {
     }
 };
 
-namespace {
-    inline POINT GetRectPos(RECT rect) {
-        return { rect.left, rect.top };
-    }
-
-    inline SIZE GetRectSize(RECT rect) {
-        return { rect.right - rect.left, rect.bottom - rect.top };
-    }
-}
-
-#if USE_LIBASS
-void AssFlatten(ASS_Image* image, SubPicDesc& spd, CRect &rcDirty) {
-    if (image) {
-        RECT pRect = { 0 };
-        for (auto i = image; i != nullptr; i = i->next) {
-            RECT rect1 = pRect;
-            RECT rect2 = { i->dst_x, i->dst_y, i->dst_x + i->w, i->dst_y + i->h };
-            UnionRect(&pRect, &rect1, &rect2);
-        }
-
-        const POINT pixelsPoint = GetRectPos(pRect);
-        const SIZE pixelsSize = GetRectSize(pRect);
-        rcDirty.IntersectRect(CRect(pixelsPoint, pixelsSize), CRect(0, 0, spd.w, spd.h));
-
-        BYTE* pixelBytes = (BYTE*)(spd.bits + spd.pitch * rcDirty.top + rcDirty.left * 4);
-
-        for (auto i = image; i != nullptr; i = i->next) {
-            concurrency::parallel_for(0, i->h, [&](int y)
-                {
-                    for (int x = 0; x < i->w; ++x) {
-                        BYTE* dst = &pixelBytes[((ptrdiff_t)i->dst_y + y - pixelsPoint.y) * spd.pitch + ((ptrdiff_t)i->dst_x + x - pixelsPoint.x) * 4];
-
-                        uint32_t srcA = (i->bitmap[y * i->stride + x] * (0xff - (i->color & 0x000000ff))) >> 8;
-                        uint32_t compA = 0xff - srcA;
-
-
-                        dst[3] = 0xff - (srcA + (((0xff-dst[3]) * compA) >> 8)); //A.  this is inverted alpha, so we invert it before multiplying and then invert it again
-                        dst[2] = (((i->color & 0xff000000) >> 24) * srcA + (dst[2]) * compA) >> 8; //R
-                        dst[1] = (((i->color & 0x00ff0000) >> 16) * srcA + dst[1] * compA) >> 8; //G
-                        dst[0] = (((i->color & 0x0000ff00) >> 8) * srcA + dst[0] * compA) >> 8; //B
-
-                    }
-                }, concurrency::static_partitioner());
-        }
-    }
-}
-#endif
-
 STDMETHODIMP CRenderedTextSubtitle::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fps, RECT& bbox)
 {
     CAutoLock cAutoLock(&renderLock);
@@ -3234,32 +3189,9 @@ STDMETHODIMP CRenderedTextSubtitle::Render(SubPicDesc& spd, REFERENCE_TIME rt, d
     }
 
 #if USE_LIBASS
-    if (m_assloaded) {
-        if (spd.bpp != 32) {
-            ASSERT(FALSE);
-            return E_INVALIDARG;
-        }
-
-        if (!m_assfontloaded && m_pPin) {
-            LoadASSFont(m_pPin, m_ass.get(), m_renderer.get());
-        }
-
-        m_size = CSize(spd.w, spd.h);
-        m_vidrect = CRect(spd.vidrect.left, spd.vidrect.top, spd.vidrect.right, spd.vidrect.bottom);
-        ass_set_frame_size(m_renderer.get(), spd.w, spd.h);
-
-        int changed = 1;
-        ASS_Image* image = ass_render_frame(m_renderer.get(), m_track.get(), rt / 10000, &changed);
-
-        if (!image) {
-            return E_FAIL;
-        }
-
-        CRect rcDirty;
-        AssFlatten(image, spd, rcDirty);
-
-        bbox = rcDirty;
-        return S_OK;
+    HRESULT libassResult = m_SSAUtil.Render(rt, spd, bbox, m_size, m_vidrect);
+    if (libassResult != E_POINTER) { //libass not initialized
+        return libassResult;
     }
 #endif
 
@@ -3652,4 +3584,16 @@ STDMETHODIMP CRenderedTextSubtitle::SetSourceTargetInfo(CString yuvVideoMatrix, 
     ColorConvTable::SetDefaultConvType(video_matrix, video_range, (targetWhiteLevel < 245), bCorrect601to709);
 
     return S_OK;
+}
+
+void CRenderedTextSubtitle::SetSubtitleTypeFromGUID(GUID subtype) {
+    if (subtype== MEDIASUBTYPE_UTF8) {
+        m_subtitleType = Subtitle::SRT;
+    } else if (subtype == MEDIASUBTYPE_SSA) {
+        m_subtitleType = Subtitle::SSA;
+    } else if (subtype == MEDIASUBTYPE_ASS || subtype == MEDIASUBTYPE_ASS2) {
+        m_subtitleType = Subtitle::ASS;
+    } else if (subtype == MEDIASUBTYPE_WEBVTT) {
+        m_subtitleType = Subtitle::VTT;
+    }
 }

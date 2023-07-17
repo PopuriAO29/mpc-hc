@@ -24,6 +24,7 @@
 #include "mplayerc.h"
 #include "MainFrm.h"
 #include "PPageSubStyle.h"
+#include "../Subtitles/OpenTypeLangTags.h"
 
 // CPPageSubStyle dialog
 
@@ -33,6 +34,7 @@ CPPageSubStyle::CPPageSubStyle()
     , m_stss(AfxGetAppSettings().subtitlesDefStyle)
     , m_bDefaultStyle(true)
     , m_iCharset(0)
+    , iOpenTypeLangHint(0)
     , m_angle(0)
     , m_scalex(0)
     , m_scaley(0)
@@ -41,6 +43,10 @@ CPPageSubStyle::CPPageSubStyle()
     , m_margin(0, 0, 0, 0)
     , m_bLinkAlphaSliders(FALSE)
     , m_iRelativeTo(0)
+#if USE_LIBASS
+    , iRenderSRTUsingLibass(false)
+    , iRenderSSAUsingLibass(false)
+#endif
 {
 }
 
@@ -74,6 +80,8 @@ void CPPageSubStyle::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_BUTTON1, m_font);
     DDX_CBIndex(pDX, IDC_COMBO1, m_iCharset);
     DDX_Control(pDX, IDC_COMBO1, m_cbCharset);
+    DDX_CBIndex(pDX, IDC_COMBO2, iOpenTypeLangHint);
+    DDX_Control(pDX, IDC_COMBO2, openTypeLangHint);
     DDX_Control(pDX, IDC_EDIT3, m_spacing);
     DDX_Text(pDX, IDC_EDIT4, m_angle);
     DDX_Control(pDX, IDC_SPIN10, m_angleSpin);
@@ -107,6 +115,10 @@ void CPPageSubStyle::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_SLIDER4, m_alphaSliders[3]);
     DDX_Check(pDX, IDC_CHECK1, m_bLinkAlphaSliders);
     DDX_Check(pDX, IDC_CHECK_RELATIVETO, m_iRelativeTo);
+#if USE_LIBASS
+    DDX_Check(pDX, IDC_CHECK2, iRenderSSAUsingLibass);
+    DDX_Check(pDX, IDC_CHECK3, iRenderSRTUsingLibass);
+#endif
 }
 
 
@@ -140,6 +152,32 @@ BOOL CPPageSubStyle::OnInitDialog()
             m_iCharset = i;
         }
     }
+
+    iOpenTypeLangHint = -1;
+    auto& s = AfxGetAppSettings();
+    auto subRenderSettings = s.GetSubRendererSettings();
+    for (int i = 0, t = 0; i < _countof(OpenTypeLang::OpenTypeLangTags); i++) {
+        CString str;
+        CStringA lang(OpenTypeLang::OpenTypeLangTags[i].lang);
+        if (lang.GetLength() == 2) {
+            str.Format(_T("%ls (%hs)"), OpenTypeLang::OpenTypeLangTags[i].langDescription, lang);
+            openTypeLangHint.AddString(str);
+            openTypeLangHint.SetItemData(t, i);
+            if (strncmp(subRenderSettings.openTypeLangHint, OpenTypeLang::OpenTypeLangTags[i].lang, OpenTypeLang::OTLangHintLen) == 0) {
+                iOpenTypeLangHint = t;
+            }
+            t++;
+        }
+    }
+
+#if USE_LIBASS
+    iRenderSSAUsingLibass = subRenderSettings.renderSSAUsingLibass;
+    iRenderSRTUsingLibass = subRenderSettings.renderSRTUsingLibass;
+#else
+    GetDlgItem(IDC_STATIC_LIBASS)->ShowWindow(false);
+    GetDlgItem(IDC_CHECK2)->ShowWindow(false);
+    GetDlgItem(IDC_CHECK3)->ShowWindow(false);
+#endif
 
     // TODO: allow floats in these edit boxes
     m_spacing.SetRange(-100.0f, 100.0f);
@@ -194,6 +232,16 @@ BOOL CPPageSubStyle::OnApply()
     if (m_iCharset >= 0) {
         m_stss.charSet = (int)m_cbCharset.GetItemData(m_iCharset);
     }
+    auto& s = AfxGetAppSettings(); 
+    if (iOpenTypeLangHint >= 0) {
+        int i = openTypeLangHint.GetItemData(iOpenTypeLangHint);
+        s.strOpenTypeLangHint = OpenTypeLang::OpenTypeLangTags[i].lang;
+    }
+
+#if USE_LIBASS
+    s.bRenderSSAUsingLibass = iRenderSSAUsingLibass;
+    s.bRenderSRTUsingLibass = iRenderSRTUsingLibass;
+#endif
     m_stss.fontSpacing = m_spacing;
     m_stss.fontAngleZ = m_angle;
     m_stss.fontScaleX = m_scalex;
