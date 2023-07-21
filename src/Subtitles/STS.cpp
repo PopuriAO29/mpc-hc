@@ -33,7 +33,7 @@
 #include "../DSUtil/DSUtil.h"
 #include  <comutil.h>
 #include <regex>
-#include "SSASub.h"
+#include "LibassContext.h"
 #include "../mpc-hc/RegexUtil.h"
 #include "../mpc-hc/SubtitlesProvidersUtils.h"
 #include "../DSUtil/ISOLang.h"
@@ -2311,9 +2311,10 @@ CSimpleTextSubtitle::CSimpleTextSubtitle()
     , m_ePARCompensationType(EPCTDisabled)
     , m_dPARCompensation(1.0)
 #if USE_LIBASS
-    , m_SSAUtil(this)
+    , m_LibassContext(this)
 #endif
 {
+    m_SubRendererSettings = AfxGetAppSettings().GetSubRendererSettings();
 }
 
 CSimpleTextSubtitle::~CSimpleTextSubtitle()
@@ -2357,8 +2358,8 @@ void CSimpleTextSubtitle::Copy(CSimpleTextSubtitle& sts)
         m_segments.Copy(sts.m_segments);
         __super::Copy(sts);
 #if USE_LIBASS
-        if (m_SSAUtil.m_assloaded) {
-            m_SSAUtil.LoadASSFile(m_subtitleType);
+        if (m_LibassContext.IsLibassActive()) {
+            m_LibassContext.LoadASSFile(m_subtitleType);
         }
 #endif
     }
@@ -2689,9 +2690,16 @@ bool CSimpleTextSubtitle::SetDefaultStyle(const STSStyle& s)
         m_styles[L"Default"] = val;
         m_bUsingPlayerDefaultStyle = true;
     }
+
+    bool changed = (s != m_SubRendererSettings.defaultStyle);
+    if (changed) {
+        m_SubRendererSettings.defaultStyle = s;
 #if USE_LIBASS
-    m_SSAUtil.DefaultStyleChanged();
+        if (m_LibassContext.IsLibassActive()) {
+            m_LibassContext.DefaultStyleChanged();
+        }
 #endif
+    }
     return true;
 }
 
@@ -3236,34 +3244,6 @@ bool CSimpleTextSubtitle::Open(CTextFile* f, int CharSet, CString name) {
         m_mode = mode;
     };
 
-#if USE_LIBASS
-    if (m_SSAUtil.m_renderUsingLibass) {
-        if (lstrcmpi(PathFindExtensionW(f->GetFilePath()), L".ass") == 0 || lstrcmpi(PathFindExtensionW(f->GetFilePath()), L".ssa") == 0) {
-            CreateDefaultStyle(CharSet);
-            m_path = f->GetFilePath();
-            m_SSAUtil.LoadASSFile(Subtitle::SubType::SSA);
-            m_subtitleType = Subtitle::SubType::SSA;
-            OpenSubStationAlpha(f, *this, CharSet);
-            loadSSAStyle();
-        } else if (lstrcmpi(PathFindExtensionW(f->GetFilePath()), L".srt") == 0) {
-            CreateDefaultStyle(CharSet);
-            m_path = f->GetFilePath();
-            m_SSAUtil.LoadASSFile(Subtitle::SubType::SRT);
-            m_subtitleType = Subtitle::SubType::SRT;
-            OpenSubRipper(f, *this, CharSet);
-        }
-
-        if (m_SSAUtil.m_assloaded) {
-            setVars(name, f->GetEncoding(), TIME);
-            ChangeUnknownStylesToDefault();
-            initRes();
-            return true;
-        } else {
-            Empty();
-        }
-    }
-#endif
-
     ULONGLONG pos = f->GetPosition();
 
     auto functs = PreferredOpenFuncts(f->GetFilePath());
@@ -3288,9 +3268,22 @@ bool CSimpleTextSubtitle::Open(CTextFile* f, int CharSet, CString name) {
         m_path = f->GetFilePath();
         m_subtitleType = OpenFuncts[i].type;
         setVars(name, f->GetEncoding(), OpenFuncts[i].mode);
-        // No need to call Sort() or CreateSegments(), everything is done on the fly
-        loadSSAStyle();
         CreateDefaultStyle(CharSet);
+
+#if USE_LIBASS
+        if ((m_subtitleType == Subtitle::SubType::SSA || m_subtitleType == Subtitle::SubType::ASS) && m_SubRendererSettings.renderSSAUsingLibass) {
+            m_LibassContext.LoadASSFile(Subtitle::SubType::SSA);
+        } else if (m_subtitleType == Subtitle::SubType::SRT && m_SubRendererSettings.renderSRTUsingLibass) {
+            m_LibassContext.LoadASSFile(Subtitle::SubType::SRT);
+        }
+        if (m_LibassContext.IsLibassActive()) {
+            // we are done now
+            // note: the subtitle data loaded by internal parser is kept so that saving (downloaded) subtitle works
+            return true;
+        }
+#endif
+
+        loadSSAStyle();
         ChangeUnknownStylesToDefault();
         initRes();
 
@@ -3632,14 +3625,14 @@ bool STSStyle::operator == (const STSStyle& s) const
     return (marginRect == s.marginRect
             && scrAlignment == s.scrAlignment
             && borderStyle == s.borderStyle
-            && outlineWidthX == s.outlineWidthX
-            && outlineWidthY == s.outlineWidthY
-            && shadowDepthX == s.shadowDepthX
-            && shadowDepthY == s.shadowDepthY
+            && abs(outlineWidthX - s.outlineWidthX) < 0.00000001
+            && abs(outlineWidthY - s.outlineWidthY) < 0.00000001
+            && abs(shadowDepthX - s.shadowDepthX) < 0.00000001
+            && abs(shadowDepthY - s.shadowDepthY) < 0.00000001
             && colors == s.colors
             && alpha == s.alpha
             && fBlur == s.fBlur
-            && fGaussianBlur == s.fGaussianBlur
+            && abs(fGaussianBlur - s.fGaussianBlur) < 0.00000001
             && relativeTo == s.relativeTo
             && IsFontStyleEqual(s));
 }
@@ -3650,19 +3643,18 @@ bool STSStyle::IsFontStyleEqual(const STSStyle& s) const
                charSet == s.charSet
                && fontName == s.fontName
                && fontSize == s.fontSize
-               && fontScaleX == s.fontScaleX
-               && fontScaleY == s.fontScaleY
-               && fontSpacing == s.fontSpacing
+               && abs(fontScaleX - s.fontScaleX) < 0.00000001
+               && abs(fontScaleY - s.fontScaleY) < 0.00000001
+               && abs(fontSpacing - s.fontSpacing) < 0.00000001
                && fontWeight == s.fontWeight
                && fItalic == s.fItalic
                && fUnderline == s.fUnderline
                && fStrikeOut == s.fStrikeOut
-               && fontAngleZ == s.fontAngleZ
-               && fontAngleX == s.fontAngleX
-               && fontAngleY == s.fontAngleY
-               // patch f001. fax fay patch (many instances at line)
-               && fontShiftX == s.fontShiftX
-               && fontShiftY == s.fontShiftY);
+               && abs(fontAngleZ - s.fontAngleZ) < 0.00000001
+               && abs(fontAngleX - s.fontAngleX) < 0.00000001
+               && abs(fontAngleY - s.fontAngleY) < 0.00000001
+               && abs(fontShiftX - s.fontShiftX) < 0.00000001
+               && abs(fontShiftY - s.fontShiftY) < 0.00000001);
 }
 
 STSStyle& STSStyle::operator = (LOGFONT& lf)
