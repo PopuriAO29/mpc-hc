@@ -3792,12 +3792,16 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
     // remember OpenMediaData for later use
     m_lastOMD.Free();
     m_lastOMD.Attach((OpenMediaData*)lParam);
+    if (!m_lastOMD->title) {
+        ASSERT(false);
+        m_lastOMD->title = L"";
+    }
 
     // the media opened successfully, we don't want to jump trough it anymore
     m_nLastSkipDirection = 0;
 
     // let the EDL do its magic
-    if (s.fEnableEDLEditor) {
+    if (s.fEnableEDLEditor && !m_lastOMD->title.IsEmpty()) {
         m_wndEditListEditor.OpenFile(m_lastOMD->title);
     }
 
@@ -3951,6 +3955,10 @@ LRESULT CMainFrame::OnOpenMediaFailed(WPARAM wParam, LPARAM lParam)
 
     m_lastOMD.Free();
     m_lastOMD.Attach((OpenMediaData*)lParam);
+    if (!m_lastOMD->title) {
+        ASSERT(false);
+        m_lastOMD->title = L"";
+    }
 
     bool bOpenNextInPlaylist = false;
     bool bAfterPlaybackEvent = false;
@@ -4052,6 +4060,10 @@ void CMainFrame::OnFilePostClosemedia(bool bNextIsQueued/* = false*/)
     m_Lcd.SetMediaPos(0);
     m_statusbarVideoFourCC.Empty();
     m_statusbarVideoSize.Empty();
+
+    m_VidDispName.Empty();
+    m_AudDispName.Empty();
+    m_HWAccelType = L"";
 
     if (!bNextIsQueued) {
         UpdateControlState(CMainFrame::UPDATE_LOGO);
@@ -4576,7 +4588,7 @@ BOOL CMainFrame::OnCopyData(CWnd* pWnd, COPYDATASTRUCT* pCDS)
             GetOpticalDiskType(s.slFiles.GetHead()[0], sl);
         } else {
             CString dir;
-            dir.ReleaseBufferSetLength(GetCurrentDirectory(MAX_PATH, dir.GetBuffer(MAX_PATH)));
+            dir.ReleaseBufferSetLength(GetCurrentDirectory(2048, dir.GetBuffer(2048)));
 
             GetOpticalDiskType(dir[0], sl);
 
@@ -9309,15 +9321,17 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
 
                             for (size_t l = 0; l < pages.GetCount(); l++) {
                                 pages[l]->GetStyle(*styles[l]);
-                                if (pRTS->m_bUsingPlayerDefaultStyle && pages[l]->GetStyleName() == L"Default") {
+                                if (pages[l]->GetStyleName() == L"Default") {
                                     if (*styles[l] != s.subtitlesDefStyle) {
                                         pRTS->m_bUsingPlayerDefaultStyle = false;
+                                        pRTS->SetDefaultStyle(*styles[l]);
                                     }
                                 }
                             }
                             pRTS->Deinit();
                         }
                         InvalidateSubtitle();
+                        RepaintVideo();
                     }
                 }
             }
@@ -14777,9 +14791,6 @@ void CMainFrame::CloseMediaPrivate()
 
     m_fCustomGraph = m_fShockwaveGraph = false;
 
-    m_VidDispName.Empty();
-    m_AudDispName.Empty();
-
     m_lastOMD.Free();
 	
 	m_FontInstaller.UninstallFonts();
@@ -14841,7 +14852,7 @@ bool CMainFrame::SearchInDir(bool bDirForward, bool bLoop /*= false*/)
     CString filename;
 
     auto pFileData = dynamic_cast<OpenFileData*>(m_lastOMD.m_p);
-    if (!pFileData) {
+    if (!pFileData || !pFileData->title || pFileData->title.IsEmpty()) {
         if (CanSkipFromClosedFile()) {
             if (m_wndPlaylistBar.GetCount() == 1) {
                 filename = m_wndPlaylistBar.m_pl.GetHead().m_fns.GetHead();
@@ -20201,12 +20212,8 @@ GUID CMainFrame::GetTimeFormat()
 void CMainFrame::UpdateDXVAStatus()
 {
     CString DXVADecoderDescription = GetDXVADecoderDescription();
-    m_HWAccelType = GetDXVAVersion();
     m_bUsingDXVA = (_T("Not using DXVA") != DXVADecoderDescription && _T("Unknown") != DXVADecoderDescription);
-
     CString DXVAInfo;
-    DXVAInfo.Format(_T("%-13s: %s"), m_HWAccelType, DXVADecoderDescription.GetString());
-
     // If LAV Video is in the graph, we query it since it's always more reliable than the hook.
     if (CComQIPtr<ILAVVideoStatus> pLAVVideoStatus = FindFilter(GUID_LAVVideo, m_pGB)) {
         const LPCWSTR decoderName = pLAVVideoStatus->GetActiveDecoderName();
@@ -20224,6 +20231,11 @@ void CMainFrame::UpdateDXVAStatus()
             }
         }
     }
+    if (DXVAInfo.IsEmpty()) {
+        m_HWAccelType = GetDXVAVersion();
+        DXVAInfo.Format(_T("%-13s: %s"), m_HWAccelType, DXVADecoderDescription.GetString());
+    }
+
     GetRenderersData()->m_strDXVAInfo = DXVAInfo;
 }
 
