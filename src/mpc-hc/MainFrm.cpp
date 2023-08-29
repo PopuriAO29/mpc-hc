@@ -11706,16 +11706,14 @@ void CMainFrame::MoveVideoWindow(bool fShowStats/* = false*/, bool bSetStoppedVi
             }
         }
 
-        if (!HasDedicatedFSVideoWindow()) {
-            m_wndView.SetVideoRect(&windowRect);
-        } else {
+        if (HasDedicatedFSVideoWindow()) {
             m_pDedicatedFSVideoWnd->SetVideoRect(&windowRect);
+        } else {
+            m_wndView.SetVideoRect(&windowRect);
         }
         m_OSD.SetSize(windowRect, videoRect);
     } else {
-        if (!HasDedicatedFSVideoWindow()) {
-            m_wndView.SetVideoRect();
-        }
+        m_wndView.SetVideoRect();
     }
 }
 
@@ -12143,7 +12141,10 @@ ShaderC* CMainFrame::GetShader(CString path, bool bD3D11)
 					file.SeekToBegin();
 				}
 
-                if (bD3D11) {
+                if (shader.profile == L"ps_4_0" && !bD3D11 || shader.profile == L"ps_5_0") {
+                    ASSERT(false);
+                    return nullptr;
+                } else if (bD3D11) {
                     shader.profile = L"ps_4_0";
                 } else if (shader.profile == L"ps_3_sw") {
 					shader.profile = L"ps_3_0";
@@ -12151,7 +12152,7 @@ ShaderC* CMainFrame::GetShader(CString path, bool bD3D11)
 						&& shader.profile != L"ps_2_a"
 						&& shader.profile != L"ps_2_b"
 						&& shader.profile != L"ps_3_0") {
-					shader.profile = L"ps_2_0";
+                    shader.profile = L"ps_3_0";
 				}
 
 				while (file.ReadString(str)) {
@@ -12427,7 +12428,7 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
     const CAppSettings& s = AfxGetAppSettings();
 
     m_pGB_preview = nullptr;
-    m_bUseSeekPreview = s.fSeekPreview && ::IsWindow(m_wndPreView.m_hWnd);
+    m_bUseSeekPreview = s.fSeekPreview && m_wndPreView && ::IsWindow(m_wndPreView.m_hWnd);
     if (m_bUseSeekPreview) {
         if (OpenFileData* pFileData = dynamic_cast<OpenFileData*>(pOMD)) {
             CString fn = pFileData->fns.GetHead();
@@ -17734,10 +17735,9 @@ void CMainFrame::SendStatusMessage(CString msg, int nTimeOut)
 }
 
 bool CMainFrame::CanPreviewUse() {
-    return (m_bUseSeekPreview
+    return (m_bUseSeekPreview && m_wndPreView && !m_fAudioOnly
         && m_eMediaLoadState == MLS::LOADED
         && (GetPlaybackMode() == PM_DVD || GetPlaybackMode() == PM_FILE)
-        && !m_fAudioOnly
         && AfxGetAppSettings().fSeekPreview);
 }
 
@@ -19671,6 +19671,8 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     if (m_pMVRSR) {
         // call madVR window proc directly when the interface is available
         switch (message) {
+            case WM_CLOSE:
+                break;
             case WM_MOUSEMOVE:
             case WM_LBUTTONDOWN:
             case WM_LBUTTONUP:
