@@ -2396,7 +2396,7 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                     OpenSetupWindowTitle();
                 }
                 SendNowPlayingToSkype();
-                SendNowPlayingToApi();
+                SendNowPlayingToApi(false);
             }
 
             if (m_CachedFilterState == State_Running && !m_fAudioOnly) {
@@ -16472,19 +16472,13 @@ bool CMainFrame::LoadSubtitle(CString fn, SubtitleInput* pSubInput /*= nullptr*/
             WIN32_FIND_DATA fd = {0};
             HANDLE hFind;
             
-            hFind = FindFirstFile(path + L"*.ttf", &fd);
+            hFind = FindFirstFile(path + L"*.?t?", &fd);
             if (hFind != INVALID_HANDLE_VALUE) {
                 do {
-                    m_FontInstaller.InstallTempFontFile(path + fd.cFileName);
-                } while (FindNextFile(hFind, &fd));
-                
-                FindClose(hFind);
-            }
-
-            hFind = FindFirstFile(path + L"*.otf", &fd);
-            if (hFind != INVALID_HANDLE_VALUE) {
-                do {
-                    m_FontInstaller.InstallTempFontFile(path + fd.cFileName);
+                    CStringW ext = GetFileExt(fd.cFileName);
+                    if (ext == ".ttf" || ext == ".otf" || ext == ".ttc") {
+                        m_FontInstaller.InstallTempFontFile(path + fd.cFileName);
+                    }
                 } while (FindNextFile(hFind, &fd));
                 
                 FindClose(hFind);
@@ -18871,7 +18865,7 @@ void CMainFrame::SendAPICommand(MPCAPI_COMMAND nCommand, LPCWSTR fmt, ...)
     }
 }
 
-void CMainFrame::SendNowPlayingToApi()
+void CMainFrame::SendNowPlayingToApi(bool sendtrackinfo)
 {
     if (!AfxGetAppSettings().hMasterWnd) {
         return;
@@ -18954,8 +18948,10 @@ void CMainFrame::SendNowPlayingToApi()
         buff.Format(L"%s|%s|%s|%s|%s", title.GetString(), author.GetString(), description.GetString(), label.GetString(), strDur.GetString());
 
         SendAPICommand(CMD_NOWPLAYING, L"%s", static_cast<LPCWSTR>(buff));
-        SendSubtitleTracksToApi();
-        SendAudioTracksToApi();
+        if (sendtrackinfo) {
+            SendSubtitleTracksToApi();
+            SendAudioTracksToApi();
+        }
     }
 }
 
