@@ -9089,13 +9089,22 @@ void CMainFrame::OnPlayFiltersCopyToClipboard()
     VERIFY(clipboard.SetText(filtersList));
 }
 
-void CMainFrame::OnPlayFilters(UINT nID)
+bool CMainFrame::FilterSettingsByClassID(CLSID clsid, CWnd* parent)
 {
-    //ShowPPage(m_spparray[nID - ID_FILTERS_SUBITEM_START], m_hWnd);
+    for (int a = 0; a < m_pparray.GetCount(); a++) {
+        CComQIPtr<IBaseFilter> pBF2 = m_pparray[a];
+        CLSID tclsid;
+        pBF2->GetClassID(&tclsid);
+        if (tclsid == clsid) {
+            FilterSettings(m_pparray[a], parent);
+            return true;
+        }
+    }
+    return false;
+}
 
-    CComPtr<IUnknown> pUnk = m_pparray[nID - ID_FILTERS_SUBITEM_START];
-
-    CComPropertySheet ps(IDS_PROPSHEET_PROPERTIES, GetModalParent());
+void CMainFrame::FilterSettings(CComPtr<IUnknown> pUnk, CWnd* parent) {
+    CComPropertySheet ps(IDS_PROPSHEET_PROPERTIES);
 
     // Find out if we are opening the property page for an internal filter
     CComQIPtr<IBaseFilter> pBF = pUnk;
@@ -9143,6 +9152,15 @@ void CMainFrame::OnPlayFilters(UINT nID)
             }
         }
     }
+}
+
+void CMainFrame::OnPlayFilters(UINT nID)
+{
+    //ShowPPage(m_spparray[nID - ID_FILTERS_SUBITEM_START], m_hWnd);
+
+    CComPtr<IUnknown> pUnk = m_pparray[nID - ID_FILTERS_SUBITEM_START];
+
+    FilterSettings(pUnk, GetModalParent());
 }
 
 void CMainFrame::OnUpdatePlayFilters(CCmdUI* pCmdUI)
@@ -12813,7 +12831,7 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
                     if (m_bUseSeekPreview) {
                         CLSID clsid;
                         if (S_OK == pBF->GetClassID(&clsid)) {
-                            if (clsid == CLSID_StillVideo) {
+                            if (clsid == CLSID_StillVideo || clsid == CLSID_MPCImageSource) {
                                 m_bUseSeekPreview = false;
                             } else if (clsid == __uuidof(CRARFileSource)) {
                                 WCHAR* pFN = nullptr;
@@ -12964,7 +12982,7 @@ void CMainFrame::SetupExternalChapters()
     // - Located in same folder as the audio/video file, and has same base filename.
     // - It will override chapter metadata that is embedded in the file.
     // - Each line defines a chapter: timecode, optionally followed by a space and chapter title.
-    // - Timecode must be in this format: HH:MM:SS.ddd or HH:MM:SS,ddd
+    // - Timecode must be in this format: HH:MM:SS,ddd
 
     CPlaylistItem* pli = m_wndPlaylistBar.GetCur();
     if (!pli) {
@@ -13002,7 +13020,7 @@ void CMainFrame::SetupExternalChapters()
             int lMinute = 0;
             int lSecond = 0;
             int lMillisec = 0;
-            if (_stscanf_s(str.Left(12), _T("%02d:%02d:%02d[,.]+%03d"), &lHour, &lMinute, &lSecond, &lMillisec) == 4) {
+            if (_stscanf_s(str.Left(12), _T("%02d:%02d:%02d,%03d"), &lHour, &lMinute, &lSecond, &lMillisec) == 4) {
                 rt = ((((lHour * 60) + lMinute) * 60 + lSecond) * MILLISECONDS + lMillisec) * (UNITS / MILLISECONDS);
                 if (str.GetLength() > 12) {
                     name = str.Mid(12);

@@ -1172,6 +1172,10 @@ msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "DirectShow Video"
 msgstr "DirectShow Video"
 
+msgctxt "IDD_PPAGEOUTPUT_IDC_BUTTON1"
+msgid "Settings"
+msgstr ""
+
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "DXVA"
 msgstr "DXVA"
@@ -1874,3 +1878,19 @@ msgstr "Groupbox"
 msgctxt "IDD_PPAGEDPICALC_IDC_STATIC2"
 msgid "Autoplay"
 msgstr "Samodejno predvajanje"
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC1"
+msgid "Modern Theme Settings (require restart)"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_CHECK1"
+msgid "Use Modern Theme"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC"
+msgid "Modern Seekbar height:"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC2"
+msgid "Modern Theme Color:"
+msgstr ""

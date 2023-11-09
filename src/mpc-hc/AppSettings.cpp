@@ -70,7 +70,7 @@ CAppSettings::CAppSettings()
     , bRememberPlaylistItems(true)
     , fRememberWindowPos(false)
     , fRememberWindowSize(false)
-    , rcLastWindowPos(CRect(100, 100, 400, 300))
+    , rcLastWindowPos(CRect(100, 100, 500, 400))
     , fSavePnSZoom(false)
     , dZoomX(1.0)
     , dZoomY(1.0)
@@ -160,11 +160,11 @@ CAppSettings::CAppSettings()
     , nAutoDownloadScoreSeries(0x18)
     , bAutoUploadSubtitles(false)
     , bPreferHearingImpairedSubtitles(false)
-    , bMPCTheme(false)
+    , bMPCTheme(true)
     , bWindows10DarkThemeActive(false)
     , bWindows10AccentColorsEnabled(false)
-    , bModernSeekbar(true)
     , iModernSeekbarHeight(DEF_MODERN_SEEKBAR_HEIGHT)
+    , eModernThemeMode(CMPCTheme::ModernThemeMode::WINDOWSDEFAULT)
     , iFullscreenDelay(MIN_FULLSCREEN_DELAY)
     , iVerticalAlignVideo(verticalAlignVideoType::ALIGN_MIDDLE)
     , nJumpDistS(DEFAULT_JUMPDISTANCE_1)
@@ -260,6 +260,7 @@ CAppSettings::CAppSettings()
     , iStillVideoDuration(10)
     , iMouseLeftUpDelay(0)
     , bUseFreeType(false)
+    , bUseMediainfoLoadFileDuration(false)
 {
     // Internal source filter
 #if INTERNAL_SOURCEFILTER_CDDA
@@ -928,6 +929,7 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_SUBTITLESLANG, idSubtitlesLang);
     pApp->WriteProfileString(IDS_R_SETTINGS, IDS_RS_OPENTYPELANGHINT, CString(strOpenTypeLangHint));
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_FREETYPE, bUseFreeType);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_MEDIAINFO_LOAD_FILE_DURATION, bUseMediainfoLoadFileDuration);
 #if USE_LIBASS
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_RENDERSSAUSINGLIBASS, bRenderSSAUsingLibass);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_RENDERSRTUSINGLIBASS, bRenderSRTUsingLibass);
@@ -953,8 +955,8 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_AUTOUPLOADSUBTITLES, bAutoUploadSubtitles);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_PREFERHEARINGIMPAIREDSUBTITLES, bPreferHearingImpairedSubtitles);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MPCTHEME, bMPCTheme);
-    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNSEEKBAR, bModernSeekbar);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNSEEKBARHEIGHT, iModernSeekbarHeight);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNTHEMEMODE, static_cast<int>(eModernThemeMode));
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_DELAY, iFullscreenDelay);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_VERTICALALIGNVIDEO, static_cast<int>(iVerticalAlignVideo));
 
@@ -1604,16 +1606,14 @@ void CAppSettings::LoadSettings()
     iRecentFilesNumber = std::max(0, (int)pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_RECENT_FILES_NUMBER, 100));
     MRU.SetSize(iRecentFilesNumber);
 
-    if (fRememberWindowPos || fRememberWindowSize) {
-        if (pApp->GetProfileBinary(IDS_R_SETTINGS, IDS_RS_LASTWINDOWRECT, &ptr, &len)) {
-            if (len == sizeof(CRect)) {
-                memcpy(&rcLastWindowPos, ptr, sizeof(CRect));
-                if (rcLastWindowPos.Width() < 400 || rcLastWindowPos.Height() < 100) {
-                    rcLastWindowPos = CRect(100, 100, 400, 300);
-                }
+    if (pApp->GetProfileBinary(IDS_R_SETTINGS, IDS_RS_LASTWINDOWRECT, &ptr, &len)) {
+        if (len == sizeof(CRect)) {
+            memcpy(&rcLastWindowPos, ptr, sizeof(CRect));
+            if (rcLastWindowPos.Width() < 250 || rcLastWindowPos.Height() < 80) {
+                rcLastWindowPos = CRect(100, 100, 500, 400);
             }
-            delete[] ptr;
         }
+        delete[] ptr;
     }
     nLastWindowType = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_LASTWINDOWTYPE, SIZE_RESTORED);
     fLastFullScreen = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_LASTFULLSCREEN, FALSE);
@@ -1636,7 +1636,8 @@ void CAppSettings::LoadSettings()
 #endif
     CT2A tmpLangHint(pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_OPENTYPELANGHINT, _T("")));
     strOpenTypeLangHint = tmpLangHint;
-    bUseFreeType= !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_FREETYPE, FALSE);
+    bUseFreeType = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_FREETYPE, FALSE);
+    bUseMediainfoLoadFileDuration = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_MEDIAINFO_LOAD_FILE_DURATION, FALSE);
 
     fClosedCaptions = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_CLOSEDCAPTIONS, FALSE);
     {
@@ -1667,7 +1668,7 @@ void CAppSettings::LoadSettings()
     strAutoDownloadSubtitlesExclude = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_AUTODOWNLOADSUBTITLESEXCLUDE);
     bAutoUploadSubtitles = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_AUTOUPLOADSUBTITLES, FALSE);
     bPreferHearingImpairedSubtitles = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_PREFERHEARINGIMPAIREDSUBTITLES, FALSE);
-    bMPCTheme = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MPCTHEME, FALSE);
+    bMPCTheme = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MPCTHEME, TRUE);
     if (IsWindows10OrGreater()) {
         CRegKey key;
         if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, _T("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), KEY_READ)) {
@@ -1687,11 +1688,12 @@ void CAppSettings::LoadSettings()
             }
         }
     }
-    bModernSeekbar = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNSEEKBAR, TRUE);
     iModernSeekbarHeight = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNSEEKBARHEIGHT, DEF_MODERN_SEEKBAR_HEIGHT);
     if (iModernSeekbarHeight < MIN_MODERN_SEEKBAR_HEIGHT || iModernSeekbarHeight > MAX_MODERN_SEEKBAR_HEIGHT) {
         iModernSeekbarHeight = DEF_MODERN_SEEKBAR_HEIGHT;
     }
+
+    eModernThemeMode = static_cast<CMPCTheme::ModernThemeMode>(pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNTHEMEMODE, static_cast<int>(CMPCTheme::ModernThemeMode::WINDOWSDEFAULT)));
 
     iFullscreenDelay = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_DELAY, MIN_FULLSCREEN_DELAY);
     if (iFullscreenDelay < MIN_FULLSCREEN_DELAY || iFullscreenDelay > MAX_FULLSCREEN_DELAY) {
@@ -1704,7 +1706,7 @@ void CAppSettings::LoadSettings()
     }
     iVerticalAlignVideo = static_cast<verticalAlignVideoType>(tVertAlign);
 
-    strSubtitlesProviders = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLESPROVIDERS, _T("<|OpenSubtitles|||0|1|><|podnapisi|||1|0|><|Napisy24|||0|0|>"));
+    strSubtitlesProviders = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLESPROVIDERS, _T("<|OpenSubtitles2|||1|0|><|OpenSubtitles|||0|0|><|podnapisi|||1|0|><|Napisy24|||0|0|>"));
     strSubtitlePaths = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLEPATHS, DEFAULT_SUBTITLE_PATHS);
     fUseDefaultSubtitlesStyle = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USEDEFAULTSUBTITLESSTYLE, FALSE);
     fEnableAudioSwitcher = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ENABLEAUDIOSWITCHER, TRUE);
@@ -2082,6 +2084,9 @@ void CAppSettings::LoadSettings()
     iStillVideoDuration = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_STILL_VIDEO_DURATION, 10);
     iMouseLeftUpDelay = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MOUSE_LEFTUP_DELAY, 0);
 
+    if (bMPCTheme) {
+        CMPCTheme::InitializeColors(eModernThemeMode);
+    }
     // GUI theme can be used now
     static_cast<CMPlayerCApp*>(AfxGetApp())->m_bThemeLoaded = bMPCTheme;
 

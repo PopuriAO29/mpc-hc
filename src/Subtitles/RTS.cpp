@@ -72,6 +72,7 @@ CMyFont::CMyFont(const STSStyle& style)
 
     HFONT hOldFont = SelectFont(g_hDC, *this);
 
+#if 0
     WCHAR selectedFontName[LF_FACESIZE];
     GetTextFaceW(g_hDC, LF_FACESIZE, selectedFontName);
     if (wcsncmp(selectedFontName, lf.lfFaceName, LF_FACESIZE)) { //GDI chose a different font -- let's use default instead
@@ -81,6 +82,7 @@ CMyFont::CMyFont(const STSStyle& style)
         VERIFY(CreateFontIndirect(&lf));
         HFONT hOldFont = SelectFont(g_hDC, *this);
     }
+#endif
 
     TEXTMETRIC tm;
     GetTextMetrics(g_hDC, &tm);
@@ -624,7 +626,9 @@ bool CText::CreatePath()
             int ftWidth = 0;
             bFirstPath = true;
             m_RTS->m_ftLibrary.LoadCodeFaceData(g_hDC, fontNameFT);
-            m_RTS->m_ftLibrary.LoadCodePoints(m_str, fontNameFT, langHint);
+            if (!langHint.IsEmpty()) {
+                m_RTS->m_ftLibrary.LoadCodePoints(m_str, fontNameFT, langHint);
+            }
             for (LPCWSTR s = m_str; *s; s++) {
                 if (!getExtent(s, 1)) {
                     return false;
@@ -668,7 +672,9 @@ bool CText::CreatePath()
             int ftWidth = 0;
             bool bFirstPath = true;
             m_RTS->m_ftLibrary.LoadCodeFaceData(g_hDC, fontNameFT);
-            m_RTS->m_ftLibrary.LoadCodePoints(m_str, fontNameFT, langHint);
+            if (!langHint.IsEmpty()) {
+                m_RTS->m_ftLibrary.LoadCodePoints(m_str, fontNameFT, langHint);
+            }
             for (LPCWSTR s = m_str; *s; s++) {
                 if (!getExtent(s, 1)) {
                     return false;

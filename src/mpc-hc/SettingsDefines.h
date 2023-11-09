@@ -73,8 +73,8 @@
 #define IDS_RS_SUBTITLESPROVIDERS           _T("SubtitlesProviders")
 #define IDS_RS_PREFERHEARINGIMPAIREDSUBTITLES _T("PreferHearingImpairedSubtitles")
 #define IDS_RS_MPCTHEME                     _T("MPCTheme")
-#define IDS_RS_MODERNSEEKBAR                _T("ModernSeekbar")
 #define IDS_RS_MODERNSEEKBARHEIGHT          _T("ModernSeekbarHeight")
+#define IDS_RS_MODERNTHEMEMODE              _T("ModernThemeMode")
 #define IDS_RS_FULLSCREEN_DELAY             _T("FullscreenDelay")
 #define IDS_RS_VERTICALALIGNVIDEO          _T("VerticalAlignVideo")
 #define IDS_RS_SUBTITLEPATHS                _T("SubtitlePaths")
@@ -108,6 +108,7 @@
 #define IDS_RS_STILL_VIDEO_DURATION         _T("StillVideoDuration")
 #define IDS_RS_MOUSE_LEFTUP_DELAY           _T("MouseLeftUpDelay")
 #define IDS_RS_USE_FREETYPE                 _T("UseFreetype")
+#define IDS_RS_USE_MEDIAINFO_LOAD_FILE_DURATION _T("UseMediainfoLoadFileDuration")
 
 // Audio
 #define IDS_RS_VOLUME                       _T("Volume")

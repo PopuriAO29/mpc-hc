@@ -3,15 +3,16 @@
 # This file is distributed under the same license as the MPC-HC package.
 # Translators:
 # MPC HC <adiposegithub@gmail.com>, 2020
-# Vlad Anisimov <uniss@ua.fm>, 2022
+# 76a3962f6092ad2975e18447163e8177_3c4bfb9, 2023
+# Vlad Anisimov <uniss@ua.fm>, 2023
 # 
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2022-04-22 22:44:46+0000\n"
+"POT-Creation-Date: 2023-06-30 03:41:53+0000\n"
 "PO-Revision-Date: 2020-01-02 07:46+0000\n"
-"Last-Translator: Vlad Anisimov <uniss@ua.fm>, 2022\n"
-"Language-Team: Ukrainian (https://www.transifex.com/mpchc/teams/106126/uk/)\n"
+"Last-Translator: Vlad Anisimov <uniss@ua.fm>, 2023\n"
+"Language-Team: Ukrainian (https://app.transifex.com/mpchc/teams/106126/uk/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -203,7 +204,7 @@ msgstr "Про програму"
 
 msgctxt "IDD_ABOUTBOX_IDC_AUTHORS_LINK"
 msgid "Copyright 2002-2023 clsid2 and others"
-msgstr "Авторське право 2002-2023 clsid2 та інші"
+msgstr "Copyright 2002-2023 clsid2 та інші"
 
 msgctxt "IDD_ABOUTBOX_IDC_STATIC"
 msgid ""
@@ -354,7 +355,7 @@ msgstr "Запам'ятовувати розмір вікна"
 
 msgctxt "IDD_PPAGEPLAYER_IDC_CHECK11"
 msgid "Remember last Pan && Scan Zoom"
-msgstr "Запам'ятовувати розташування та розміру кадра"
+msgstr "Запам'ятовувати розташування та розмір кадра"
 
 msgctxt "IDD_PPAGEDVD_IDC_STATIC"
 msgid "\"Open DVD/BD\" behavior"
@@ -718,7 +719,7 @@ msgstr ""
 
 msgctxt "IDD_PPAGETWEAKS_IDC_CHECK8"
 msgid "Show time tooltip (and preview):"
-msgstr ""
+msgstr "Показувати підказку про час (і попередній перегляд):"
 
 msgctxt "IDD_PPAGETWEAKS_IDC_STATIC"
 msgid "OSD font:"
@@ -866,7 +867,7 @@ msgstr "Гаразд"
 
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
 msgid "Pan & Scan Presets"
-msgstr "Список положення та масштабу"
+msgstr "Список розташуваннь та розміру кадра"
 
 msgctxt "IDD_PNSPRESET_DLG_IDC_BUTTON2"
 msgid "New"
@@ -1106,23 +1107,23 @@ msgstr "Зв'язати альфа-канали"
 
 msgctxt "IDD_PPAGESUBSTYLE_IDC_STATIC21"
 msgid "8-bit Character Set"
-msgstr ""
+msgstr "Набір символів 8-біт"
 
 msgctxt "IDD_PPAGESUBSTYLE_IDC_STATIC22"
 msgid "OpenType Language"
-msgstr ""
+msgstr "Мова OpenType"
 
 msgctxt "IDD_PPAGESUBSTYLE_IDC_STATIC_LIBASS"
 msgid "Libass Options"
-msgstr ""
+msgstr "Опції Libass"
 
 msgctxt "IDD_PPAGESUBSTYLE_IDC_CHECK2"
 msgid "Use libass for SSA/ASS"
-msgstr ""
+msgstr "Використовувати libass для SSA/ASS"
 
 msgctxt "IDD_PPAGESUBSTYLE_IDC_CHECK3"
 msgid "Use libass for SRT"
-msgstr ""
+msgstr "Використовувати libass для SRT"
 
 msgctxt "IDD_PPAGEINTERNALFILTERS_IDC_STATIC"
 msgid ""
@@ -1175,6 +1176,10 @@ msgstr "Застосувати кольоровий профіль моніто�
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "DirectShow Video"
 msgstr "DirectShow відео"
+
+msgctxt "IDD_PPAGEOUTPUT_IDC_BUTTON1"
+msgid "Settings"
+msgstr ""
 
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "DXVA"
@@ -1458,7 +1463,7 @@ msgstr "Налаштування запису цифрового сигналу 
 
 msgctxt "IDD_PPAGECAPTURE_IDC_STATIC4"
 msgid "Network Provider"
-msgstr "Провайдер"
+msgstr "Постачальник мережі"
 
 msgctxt "IDD_PPAGECAPTURE_IDC_STATIC5"
 msgid "Tuner"
@@ -1635,8 +1640,8 @@ msgctxt "IDD_PPAGESUBMISC_IDC_CHECK5"
 msgid ""
 "Prefer subtitles for hearing impaired (when indicated by subtitles provider)"
 msgstr ""
-"Віддавати перевагу субтитрам для людей з вадами слуху (якщо це зазначено "
-"постачальником субтитрів)"
+"Віддавати перевагу субтитрам для людей з вадами слуху (якщо позначено "
+"постачальником)"
 
 msgctxt "IDD_PPAGESUBMISC_IDC_STATIC1"
 msgid "Ignore files containing any of the following word(s):"
@@ -1650,6 +1655,8 @@ msgctxt "IDD_PPAGESUBMISC_IDC_CHECK_AUTOSAVE_ONLINE_SUBTITLE"
 msgid ""
 "Automatically save downloaded subtitles to the first autoload path folder"
 msgstr ""
+"Автоматично зберігати завантажені субтитри в першу папку шляху "
+"автозавантаження"
 
 msgctxt "IDD_UPDATE_DIALOG_CAPTION"
 msgid "Update Checker"
@@ -1881,3 +1888,19 @@ msgstr "Groupbox"
 msgctxt "IDD_PPAGEDPICALC_IDC_STATIC2"
 msgid "Autoplay"
 msgstr "Автовідтворення"
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC1"
+msgid "Modern Theme Settings (require restart)"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_CHECK1"
+msgid "Use Modern Theme"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC"
+msgid "Modern Seekbar height:"
+msgstr ""
+
+msgctxt "IDD_PPAGETHEME_IDC_STATIC2"
+msgid "Modern Theme Color:"
+msgstr ""
