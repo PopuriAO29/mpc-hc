@@ -857,8 +857,8 @@ msgid "OK"
 msgstr "Լավ"
 
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
-msgid "Pan & Scan Presets"
-msgstr "Չափերի և դիրքերի կարգավորումներ"
+msgid "PnS Frame Adjust Presets"
+msgstr ""
 
 msgctxt "IDD_PNSPRESET_DLG_IDC_BUTTON2"
 msgid "New"
@@ -1195,6 +1195,10 @@ msgstr "Շրջել"
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "Audio Renderer"
 msgstr "Ձայնի նյութավորիչ"
+
+msgctxt "IDD_PPAGEOUTPUT_IDC_BUTTON2"
+msgid "Settings"
+msgstr ""
 
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "Subtitle Renderer"

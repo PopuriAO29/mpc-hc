@@ -863,8 +863,8 @@ msgid "OK"
 msgstr "Tamam"
 
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
-msgid "Pan & Scan Presets"
-msgstr "Süzme & Tarama Önayarları"
+msgid "PnS Frame Adjust Presets"
+msgstr ""
 
 msgctxt "IDD_PNSPRESET_DLG_IDC_BUTTON2"
 msgid "New"
@@ -1201,6 +1201,10 @@ msgstr "Döndürme"
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "Audio Renderer"
 msgstr "Ses İşleyicisi"
+
+msgctxt "IDD_PPAGEOUTPUT_IDC_BUTTON2"
+msgid "Settings"
+msgstr ""
 
 msgctxt "IDD_PPAGEOUTPUT_IDC_STATIC"
 msgid "Subtitle Renderer"

@@ -213,6 +213,7 @@ CAppSettings::CAppSettings()
     , nLastUsedPage(0)
     , fRemainingTime(false)
     , bHighPrecisionTimer(false)
+    , bTimerShowPercentage(false)
     , fLastFullScreen(false)
     , fEnableEDLEditor(false)
     , hMasterWnd(nullptr)
@@ -249,6 +250,7 @@ CAppSettings::CAppSettings()
     , sYDLSubsPreference()
     , bUseAutomaticCaptions(false)
     , bLockNoPause(false)
+    , bPreventDisplaySleep(true)
     , bUseSMTC(false)
     , iReloadAfterLongPause(0)
     , bOpenRecPanelWhenOpeningDevice(true)
@@ -653,7 +655,7 @@ static constexpr wmcmd_base default_wmcmds[] = {
     { ID_DVD_SUB_NEXT,                      0, FVIRTKEY | FNOINVERT,                    IDS_MPLAYERC_95 },
     { ID_DVD_SUB_PREV,                      0, FVIRTKEY | FNOINVERT,                    IDS_MPLAYERC_96 },
     { ID_DVD_SUB_ONOFF,                     0, FVIRTKEY | FNOINVERT,                    IDS_MPLAYERC_97 },
-    { ID_VIEW_TEARING_TEST,               'T', FVIRTKEY | FCONTROL | FNOINVERT,         IDS_AG_TEARING_TEST },
+    { ID_VIEW_TEARING_TEST,                 0, FVIRTKEY | FNOINVERT,                    IDS_AG_TEARING_TEST },
     { ID_VIEW_OSD_DISPLAY_TIME,           'I', FVIRTKEY | FCONTROL | FNOINVERT,         IDS_OSD_DISPLAY_CURRENT_TIME },
     { ID_VIEW_OSD_SHOW_FILENAME,          'N', FVIRTKEY | FNOINVERT,                    IDS_OSD_SHOW_FILENAME },
     { ID_SHADERS_PRESET_NEXT,               0, FVIRTKEY | FNOINVERT,                    IDS_AG_SHADERS_PRESET_NEXT },
@@ -1158,6 +1160,7 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
 
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_REMAINING_TIME, fRemainingTime);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_HIGH_PRECISION_TIMER, bHighPrecisionTimer);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_TIMER_SHOW_PERCENTAGE, bTimerShowPercentage);
 
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_UPDATER_AUTO_CHECK, nUpdaterAutoCheck);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_UPDATER_DELAY, nUpdaterDelay);
@@ -1184,6 +1187,7 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_LOOP_FOLDER_NEXT_FILE, bLoopFolderOnPlayNextFile);
 
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_LOCK_NOPAUSE, bLockNoPause);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_PREVENT_DISPLAY_SLEEP, bPreventDisplaySleep);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_SMTC, bUseSMTC);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_RELOAD_AFTER_LONG_PAUSE, iReloadAfterLongPause);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_OPEN_REC_PANEL_WHEN_OPENING_DEVICE, bOpenRecPanelWhenOpeningDevice);
@@ -2004,6 +2008,7 @@ void CAppSettings::LoadSettings()
 
     fRemainingTime = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_REMAINING_TIME, FALSE);
     bHighPrecisionTimer = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_HIGH_PRECISION_TIMER, FALSE);
+    bTimerShowPercentage = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_TIMER_SHOW_PERCENTAGE, FALSE);
 
     nUpdaterAutoCheck = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_UPDATER_AUTO_CHECK, AUTOUPDATE_UNKNOWN);
     nUpdaterDelay = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_UPDATER_DELAY, 7);
@@ -2036,6 +2041,7 @@ void CAppSettings::LoadSettings()
     bLoopFolderOnPlayNextFile = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_LOOP_FOLDER_NEXT_FILE, FALSE);
 
     bLockNoPause = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_LOCK_NOPAUSE, FALSE);
+    bPreventDisplaySleep = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_PREVENT_DISPLAY_SLEEP, TRUE);
     bUseSMTC = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_SMTC, FALSE);
     iReloadAfterLongPause = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_RELOAD_AFTER_LONG_PAUSE, 0);
     bOpenRecPanelWhenOpeningDevice = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_OPEN_REC_PANEL_WHEN_OPENING_DEVICE, TRUE);
@@ -2857,6 +2863,42 @@ DVD_POSITION CAppSettings::CRecentFileListWithMoreInfo::GetCurrentDVDPosition() 
     return DVD_POSITION();
 }
 
+void CAppSettings::CRecentFileListWithMoreInfo::UpdateCurrentAudioTrack(int audioIndex) {
+    size_t idx;
+    if (GetCurrentIndex(idx)) {
+        if (rfe_array[idx].AudioTrackIndex != audioIndex) {
+            rfe_array[idx].AudioTrackIndex = audioIndex;
+            WriteMediaHistoryAudioIndex(rfe_array[idx]);
+        }
+    }
+}
+
+int CAppSettings::CRecentFileListWithMoreInfo::GetCurrentAudioTrack() {
+    size_t idx;
+    if (GetCurrentIndex(idx)) {
+        return rfe_array[idx].AudioTrackIndex;
+    }
+    return -1;
+}
+
+void CAppSettings::CRecentFileListWithMoreInfo::UpdateCurrentSubtitleTrack(int audioIndex) {
+    size_t idx;
+    if (GetCurrentIndex(idx)) {
+        if (rfe_array[idx].SubtitleTrackIndex != audioIndex) {
+            rfe_array[idx].SubtitleTrackIndex = audioIndex;
+            WriteMediaHistorySubtitleIndex(rfe_array[idx]);
+        }
+    }
+}
+
+int CAppSettings::CRecentFileListWithMoreInfo::GetCurrentSubtitleTrack() {
+    size_t idx; 
+    if (GetCurrentIndex(idx)) {
+        return rfe_array[idx].SubtitleTrackIndex;
+    }
+    return -1;
+}
+
 void CAppSettings::CRecentFileListWithMoreInfo::AddSubToCurrent(CStringW subpath) {
     size_t idx;
     if (GetCurrentIndex(idx)) {
@@ -3097,6 +3139,9 @@ bool CAppSettings::CRecentFileListWithMoreInfo::LoadMediaHistoryEntry(CStringW h
         }
         r.subs.AddTail(st);
     }
+
+    r.AudioTrackIndex = pApp->GetProfileIntW(subSection, L"AudioTrackIndex", -1);
+    r.SubtitleTrackIndex = pApp->GetProfileIntW(subSection, L"SubtitleTrackIndex", -1);
     return true;
 }
 
@@ -3143,6 +3188,40 @@ void CAppSettings::CRecentFileListWithMoreInfo::ReadMediaHistory() {
     rfe_array.FreeExtra();
 }
 
+void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryAudioIndex(RecentFileEntry& r) {
+    auto pApp = AfxGetMyApp();
+
+    if (r.hash.IsEmpty()) {
+        r.hash = getRFEHash(r.fns.GetHead());
+    }
+
+    CStringW subSection, t;
+    subSection.Format(L"%s\\%s", m_section, static_cast<LPCWSTR>(r.hash));
+
+    if (r.AudioTrackIndex != -1) {
+        pApp->WriteProfileInt(subSection, L"AudioTrackIndex", int(r.AudioTrackIndex));
+    } else {
+        pApp->WriteProfileStringW(subSection, L"AudioTrackIndex", nullptr);
+    }
+}
+
+void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistorySubtitleIndex(RecentFileEntry& r) {
+    auto pApp = AfxGetMyApp();
+
+    if (r.hash.IsEmpty()) {
+        r.hash = getRFEHash(r.fns.GetHead());
+    }
+
+    CStringW subSection, t;
+    subSection.Format(L"%s\\%s", m_section, static_cast<LPCWSTR>(r.hash));
+
+    if (r.SubtitleTrackIndex != -1) {
+        pApp->WriteProfileInt(subSection, L"SubtitleTrackIndex", int(r.SubtitleTrackIndex));
+    } else {
+        pApp->WriteProfileStringW(subSection, L"SubtitleTrackIndex", nullptr);
+    }
+}
+
 void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryEntry(RecentFileEntry& r, bool updateLastOpened /* = false */) {
     auto pApp = AfxGetMyApp();
 
@@ -3150,7 +3229,7 @@ void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryEntry(RecentFil
         r.hash = getRFEHash(r.fns.GetHead());
     }
 
-    CStringW hashName, subSection, t;
+    CStringW subSection, t;
     subSection.Format(L"%s\\%s", m_section, static_cast<LPCWSTR>(r.hash));
     pApp->WriteProfileStringW(subSection, L"Filename", r.fns.GetHead());
 
@@ -3161,17 +3240,17 @@ void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryEntry(RecentFil
         while (p != nullptr) {
             CString fn = r.fns.GetNext(p);
             t.Format(L"Filename%03d", k);
-            pApp->WriteProfileString(subSection, t, fn);
+            pApp->WriteProfileStringW(subSection, t, fn);
             k++;
         }
     }
     if (!r.title.IsEmpty()) {
         t = L"Title";
-        pApp->WriteProfileString(subSection, t, r.title);
+        pApp->WriteProfileStringW(subSection, t, r.title);
     }
     if (!r.cue.IsEmpty()) {
         t = L"Cue";
-        pApp->WriteProfileString(subSection, t, r.cue);
+        pApp->WriteProfileStringW(subSection, t, r.cue);
     }
     if (r.subs.GetCount() > 0) {
         int k = 1;
@@ -3179,14 +3258,14 @@ void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryEntry(RecentFil
         while (p != nullptr) {
             CString fn = r.subs.GetNext(p);
             t.Format(L"Sub%03d", k);
-            pApp->WriteProfileString(subSection, t, fn);
+            pApp->WriteProfileStringW(subSection, t, fn);
             k++;
         }
     }
     if (r.DVDPosition.llDVDGuid) {
         t = L"DVDPosition";
         CStringW strValue = SerializeHex((BYTE*)&r.DVDPosition, sizeof(DVD_POSITION));
-        pApp->WriteProfileString(subSection, t, strValue);
+        pApp->WriteProfileStringW(subSection, t, strValue);
     } else {
         t = L"FilePosition";
         pApp->WriteProfileInt(subSection, t, int(r.filePosition / 10000LL));
@@ -3208,6 +3287,17 @@ void CAppSettings::CRecentFileListWithMoreInfo::WriteMediaHistoryEntry(RecentFil
         pApp->WriteProfileStringW(subSection, L"abRepeat.dvdTitle", nullptr);
     }
 
+    if (r.AudioTrackIndex != -1) {
+        pApp->WriteProfileInt(subSection, L"AudioTrackIndex", int(r.AudioTrackIndex));
+    } else {
+        pApp->WriteProfileStringW(subSection, L"AudioTrackIndex", nullptr);
+    }
+
+    if (r.SubtitleTrackIndex != -1) {
+        pApp->WriteProfileInt(subSection, L"SubtitleTrackIndex", int(r.SubtitleTrackIndex));
+    } else {
+        pApp->WriteProfileStringW(subSection, L"SubtitleTrackIndex", nullptr);
+    }
 
     if (updateLastOpened || r.lastOpened.IsEmpty()) {
         auto now = std::chrono::system_clock::now();
@@ -3493,15 +3583,3 @@ void CAppSettings::UpdateSettings()
     }
 }
 
-// ToDo: move these settings into CRendererSettings or make an implementation similar to CRendererSettings that holds old subtitle settings
-SubRendererSettings CAppSettings::GetSubRendererSettings() {
-    SubRendererSettings s;
-    s.defaultStyle = this->subtitlesDefStyle;
-    s.overrideDefaultStyle = this->fUseDefaultSubtitlesStyle;
-#if USE_LIBASS
-    s.renderSSAUsingLibass = this->bRenderSSAUsingLibass;
-    s.renderSRTUsingLibass = this->bRenderSRTUsingLibass;
-#endif
-    OpenTypeLang::CStringAtoHintStr(s.openTypeLangHint, this->strOpenTypeLangHint);
-    return s;
-}
