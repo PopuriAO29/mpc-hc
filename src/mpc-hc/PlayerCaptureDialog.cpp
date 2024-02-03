@@ -29,6 +29,7 @@
 #include "../filters/muxer/MatroskaMuxer/MatroskaMuxer.h"
 #include "../filters/muxer/DSMMuxer/DSMMuxer.h"
 #include "../filters/transform/BufferFilter/BufferFilter.h"
+#include "CMPCThemeMsgBox.h"
 
 static CString NormalizeMediaName(const CString& displayName)
 {
@@ -272,8 +273,8 @@ static void SetupMediaTypes(IAMStreamConfig* pAMSC, CFormatArray<T>& tfa, CCombo
                             || presets[j].cx > pcaps->MaxOutputSize.cx
                             || presets[j].cy < pcaps->MinOutputSize.cy
                             || presets[j].cy > pcaps->MaxOutputSize.cy
-                            || presets[j].cx % pcaps->OutputGranularityX
-                            || presets[j].cy % pcaps->OutputGranularityY) {
+                            || pcaps->OutputGranularityX > 0 && (presets[j].cx % pcaps->OutputGranularityX) > 0
+                            || pcaps->OutputGranularityY > 0 && (presets[j].cy % pcaps->OutputGranularityY) > 0) {
                         continue;
                     }
 
@@ -1631,7 +1632,7 @@ void CPlayerCaptureDialog::OnRecord()
         if (!pFSF
                 || FAILED(pFSF->SetFileName(CStringW(file), nullptr))
                 || FAILED(pFSF->SetMode(AM_FILE_OVERWRITE))) {
-            MessageBox(ResStr(IDS_CAPTURE_ERROR_OUT_FILE), ResStr(IDS_CAPTURE_ERROR), MB_ICONERROR | MB_OK);
+            CMPCThemeMsgBox::MessageBoxW(this, ResStr(IDS_CAPTURE_ERROR_OUT_FILE), ResStr(IDS_CAPTURE_ERROR), MB_ICONERROR | MB_OK);
             return;
         }
 
@@ -1651,7 +1652,7 @@ void CPlayerCaptureDialog::OnRecord()
             if (!pFSFAudioMux
                     || FAILED(pFSFAudioMux->SetFileName(CStringW(audfn), nullptr))
                     || FAILED(pFSFAudioMux->SetMode(AM_FILE_OVERWRITE))) {
-                MessageBox(ResStr(IDS_CAPTURE_ERROR_AUD_OUT_FILE), ResStr(IDS_CAPTURE_ERROR), MB_ICONERROR | MB_OK);
+                CMPCThemeMsgBox::MessageBoxW(this, ResStr(IDS_CAPTURE_ERROR_AUD_OUT_FILE), ResStr(IDS_CAPTURE_ERROR), MB_ICONERROR | MB_OK);
                 return;
             }
         }

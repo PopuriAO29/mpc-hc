@@ -595,6 +595,8 @@ public:
     bool            fRememberFilePos;
     int             iRememberPosForLongerThan;
     bool            bRememberPosForAudioFiles;
+    bool            bRememberExternalPlaylistPos;
+    bool            bRememberTrackSelection;
     bool            bRememberPlaylistItems;
     bool            fRememberWindowPos;
     CRect           rcLastWindowPos;
@@ -808,8 +810,8 @@ public:
     bool            fSeekPreview;
     int             iSeekPreviewSize;
     bool            fUseSearchInFolder;
-    bool            fUseTimeTooltip;
-    int             nTimeTooltipPosition;
+    bool            fUseSeekbarHover;
+    int             nHoverPosition;
     CString         strOSDFont;
     int             nOSDSize;
     bool            bHideWindowedMousePointer;
@@ -865,7 +867,7 @@ public:
     bool            bHidePlaylistFullScreen;
 
     // OTHER STATES
-    CStringW        strLastOpenDir;
+    //CStringW        strLastOpenDir;
     UINT            nLastWindowType;
     WORD            nLastUsedPage;
     bool            fRemainingTime;
@@ -952,13 +954,16 @@ public:
     CStringA strOpenTypeLangHint;
 
     CStringW lastQuickOpenPath;
-    CStringW lastSaveImagePath;
+    CStringW lastFileSaveCopyPath;
+    CStringW lastFileOpenDirPath;
 
     int iRedirectOpenToAppendThreshold;
     bool bFullscreenSeparateControls;
     bool bAlwaysUseShortMenu;
     int iStillVideoDuration;
     int iMouseLeftUpDelay;
+
+    bool bCaptureDeinterlace;
 
 private:
     struct FilterKey {
@@ -991,7 +996,6 @@ private:
     void            SaveSettingsAutoChangeFullScreenMode();
 
     void            UpdateRenderersData(bool fSave);
-    friend void     CRenderersSettings::UpdateData(bool bSave);
 
     SubtitleRenderer eSubtitleRenderer;
     CSize            sizeAspectRatio;
@@ -1004,6 +1008,8 @@ public:
     CAppSettings& operator = (const CAppSettings&) = delete;
 
     void            SaveSettings(bool write_full_history = false);
+    static std::multimap<CStringW, CStringW> LoadHistoryHashes(CStringW section, CStringW dateField);
+    static void PurgeExpiredHash(CStringW section, CStringW hash);
     void            LoadSettings();
     void            SaveExternalFilters() {
         if (bInitialized) {
@@ -1011,6 +1017,10 @@ public:
         }
     };
     void            UpdateSettings();
+
+    void SavePlayListPosition(CStringW playlistPath, UINT position);
+
+    UINT GetSavedPlayListPosition(CStringW playlistPath);
 
     void            SetAsUninitialized() {
         bInitialized = false;
@@ -1025,6 +1035,5 @@ public:
     bool            GetAllowMultiInst() const;
 
     static bool     IsVSFilterInstalled();
-    SubRendererSettings	GetSubRendererSettings();
 };
 

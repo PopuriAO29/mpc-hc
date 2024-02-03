@@ -46,6 +46,8 @@
 #define IDS_RS_FILEPOS                      _T("RememberFilePos")
 #define IDS_RS_FILEPOSLONGER                _T("RememberPosForLongerThan")
 #define IDS_RS_FILEPOSAUDIO                 _T("RememberPosForAudioFiles")
+#define IDS_RS_FILEPOS_PLAYLIST             _T("RememberExternalPlaylistPos")
+#define IDS_RS_FILEPOS_TRACK_SELECTION      _T("RememberTrackSelection")
 #define IDS_RS_LASTFULLSCREEN               _T("LastFullScreen")
 #define IDS_RS_EVR_BUFFERS                  _T("EVRBuffers")
 #define IDS_RS_SHOWOSD                      _T("ShowOSD")
@@ -110,6 +112,7 @@
 #define IDS_RS_MOUSE_LEFTUP_DELAY           _T("MouseLeftUpDelay")
 #define IDS_RS_USE_FREETYPE                 _T("UseFreetype")
 #define IDS_RS_USE_MEDIAINFO_LOAD_FILE_DURATION _T("UseMediainfoLoadFileDuration")
+#define IDS_RS_CAPTURE_DEINTERLACE          _T("CaptureDeinterlace")
 
 // Audio
 #define IDS_RS_VOLUME                       _T("Volume")
@@ -379,4 +382,6 @@
 #define IDS_RS_ENABLE_CRASH_REPORTER        _T("EnableCrashReporter")
 
 #define IDS_LAST_QUICKOPEN_PATH             _T("LastQuickOpenPath")
-#define IDS_LAST_SAVEIMAGE_PATH             _T("LastSaveImagePath")
+#define IDS_LAST_FILESAVECOPY_PATH          _T("LastFileSaveCopyPath")
+#define IDS_LAST_FILEOPENDIR_PATH          _T("LastFileOpenDirPath")
+

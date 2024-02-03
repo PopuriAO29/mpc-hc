@@ -67,6 +67,8 @@ CAppSettings::CAppSettings()
     , fRememberFilePos(false)
     , iRememberPosForLongerThan(5)
     , bRememberPosForAudioFiles(true)
+    , bRememberExternalPlaylistPos(true)
+    , bRememberTrackSelection(true)
     , bRememberPlaylistItems(true)
     , fRememberWindowPos(false)
     , fRememberWindowSize(false)
@@ -180,8 +182,8 @@ CAppSettings::CAppSettings()
     , fSeekPreview(false)
     , iSeekPreviewSize(15)
     , fUseSearchInFolder(false)
-    , fUseTimeTooltip(true)
-    , nTimeTooltipPosition(TIME_TOOLTIP_ABOVE_SEEKBAR)
+    , fUseSeekbarHover(true)
+    , nHoverPosition(TIME_TOOLTIP_ABOVE_SEEKBAR)
     , nOSDSize(0)
     , bHideWindowedMousePointer(true)
     , iBrightness(0)
@@ -255,7 +257,8 @@ CAppSettings::CAppSettings()
     , iReloadAfterLongPause(0)
     , bOpenRecPanelWhenOpeningDevice(true)
     , lastQuickOpenPath(L"")
-    , lastSaveImagePath(L"")
+    , lastFileSaveCopyPath(L"")
+    , lastFileOpenDirPath(L"")
     , iRedirectOpenToAppendThreshold(1000)
     , bFullscreenSeparateControls(false)
     , bAlwaysUseShortMenu(false)
@@ -263,49 +266,14 @@ CAppSettings::CAppSettings()
     , iMouseLeftUpDelay(0)
     , bUseFreeType(false)
     , bUseMediainfoLoadFileDuration(false)
+    , bCaptureDeinterlace(false)
 {
     // Internal source filter
-#if INTERNAL_SOURCEFILTER_CDDA
-    SrcFiltersKeys[SRC_CDDA] = FilterKey(_T("SRC_CDDA"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_CDXA
-    SrcFiltersKeys[SRC_CDXA] = FilterKey(_T("SRC_CDXA"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_VTS
-    SrcFiltersKeys[SRC_VTS] = FilterKey(_T("SRC_VTS"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_FLIC
-    SrcFiltersKeys[SRC_FLIC] = FilterKey(_T("SRC_FLIC"), true);
-#endif
 #if INTERNAL_SOURCEFILTER_AC3
     SrcFiltersKeys[SRC_AC3] = FilterKey(_T("SRC_AC3"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_DTS
-    SrcFiltersKeys[SRC_DTS] = FilterKey(_T("SRC_DTS"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_MATROSKA
-    SrcFiltersKeys[SRC_MATROSKA] = FilterKey(_T("SRC_MATROSKA"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_HTTP
-    SrcFiltersKeys[SRC_HTTP] = FilterKey(_T("SRC_HTTP"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_RTSP
-    SrcFiltersKeys[SRC_RTSP] = FilterKey(_T("SRC_RTSP"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_RTSP
-    SrcFiltersKeys[SRC_UDP] = FilterKey(_T("SRC_UDP"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_RTP
-    SrcFiltersKeys[SRC_RTP] = FilterKey(_T("SRC_RTP"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_MMS
-    SrcFiltersKeys[SRC_MMS] = FilterKey(_T("SRC_MMS"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_RTMP
-    SrcFiltersKeys[SRC_RTMP] = FilterKey(_T("SRC_RTMP"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_REALMEDIA
-    SrcFiltersKeys[SRC_REALMEDIA] = FilterKey(_T("SRC_REALMEDIA"), true);
+#if INTERNAL_SOURCEFILTER_ASF
+    SrcFiltersKeys[SRC_ASF] = FilterKey(_T("SRC_ASF"), false);
 #endif
 #if INTERNAL_SOURCEFILTER_AVI
     SrcFiltersKeys[SRC_AVI] = FilterKey(_T("SRC_AVI"), true);
@@ -313,22 +281,14 @@ CAppSettings::CAppSettings()
 #if INTERNAL_SOURCEFILTER_AVS
     SrcFiltersKeys[SRC_AVS] = FilterKey(_T("SRC_AVS"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_OGG
-    SrcFiltersKeys[SRC_OGG] = FilterKey(_T("SRC_OGG"), true);
+#if INTERNAL_SOURCEFILTER_DTS
+    SrcFiltersKeys[SRC_DTS] = FilterKey(_T("SRC_DTS"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_MPEG
-    SrcFiltersKeys[SRC_MPEG] = FilterKey(_T("SRC_MPEG"), true);
-    SrcFiltersKeys[SRC_MPEGTS] = FilterKey(_T("SRC_MPEGTS"), true);
+#if INTERNAL_SOURCEFILTER_FLAC
+    SrcFiltersKeys[SRC_FLAC] = FilterKey(_T("SRC_FLAC"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_MPEGAUDIO
-    SrcFiltersKeys[SRC_MPA] = FilterKey(_T("SRC_MPA"), true);
-#endif
-#if INTERNAL_SOURCEFILTER_DSM
-    SrcFiltersKeys[SRC_DSM] = FilterKey(_T("SRC_DSM"), true);
-#endif
-    SrcFiltersKeys[SRC_SUBS] = FilterKey(_T("SRC_SUBS"), true);
-#if INTERNAL_SOURCEFILTER_MP4
-    SrcFiltersKeys[SRC_MP4] = FilterKey(_T("SRC_MP4"), true);
+#if INTERNAL_SOURCEFILTER_FLIC
+    SrcFiltersKeys[SRC_FLIC] = FilterKey(_T("SRC_FLIC"), true);
 #endif
 #if INTERNAL_SOURCEFILTER_FLV
     SrcFiltersKeys[SRC_FLV] = FilterKey(_T("SRC_FLV"), true);
@@ -336,20 +296,63 @@ CAppSettings::CAppSettings()
 #if INTERNAL_SOURCEFILTER_GIF
     SrcFiltersKeys[SRC_GIF] = FilterKey(_T("SRC_GIF"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_ASF
-    SrcFiltersKeys[SRC_ASF] = FilterKey(_T("SRC_ASF"), false);
+#if INTERNAL_SOURCEFILTER_HTTP
+    SrcFiltersKeys[SRC_HTTP] = FilterKey(_T("SRC_HTTP"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MATROSKA
+    SrcFiltersKeys[SRC_MATROSKA] = FilterKey(_T("SRC_MATROSKA"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MISC
+    SrcFiltersKeys[SRC_MISC] = FilterKey(_T("SRC_MISC"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MMS
+    SrcFiltersKeys[SRC_MMS] = FilterKey(_T("SRC_MMS"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MP4
+    SrcFiltersKeys[SRC_MP4] = FilterKey(_T("SRC_MP4"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MPEGAUDIO
+    SrcFiltersKeys[SRC_MPA] = FilterKey(_T("SRC_MPA"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_MPEG
+    SrcFiltersKeys[SRC_MPEG] = FilterKey(_T("SRC_MPEG"), true);
+    SrcFiltersKeys[SRC_MPEGTS] = FilterKey(_T("SRC_MPEGTS"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_OGG
+    SrcFiltersKeys[SRC_OGG] = FilterKey(_T("SRC_OGG"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_REALMEDIA
+    SrcFiltersKeys[SRC_REALMEDIA] = FilterKey(_T("SRC_REALMEDIA"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_RTMP
+    SrcFiltersKeys[SRC_RTMP] = FilterKey(_T("SRC_RTMP"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_RTP
+    SrcFiltersKeys[SRC_RTP] = FilterKey(_T("SRC_RTP"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_RTSP
+    SrcFiltersKeys[SRC_RTSP] = FilterKey(_T("SRC_RTSP"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_RTSP
+    SrcFiltersKeys[SRC_UDP] = FilterKey(_T("SRC_UDP"), true);
 #endif
 #if INTERNAL_SOURCEFILTER_WTV
     SrcFiltersKeys[SRC_WTV] = FilterKey(_T("SRC_WTV"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_FLAC
-    SrcFiltersKeys[SRC_FLAC] = FilterKey(_T("SRC_FLAC"), true);
+#if INTERNAL_SOURCEFILTER_CDDA
+    SrcFiltersKeys[SRC_CDDA] = FilterKey(_T("SRC_CDDA"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_CDXA
+    SrcFiltersKeys[SRC_CDXA] = FilterKey(_T("SRC_CDXA"), true);
+#endif
+#if INTERNAL_SOURCEFILTER_DSM
+    SrcFiltersKeys[SRC_DSM] = FilterKey(_T("SRC_DSM"), true);
 #endif
 #if INTERNAL_SOURCEFILTER_RFS
     SrcFiltersKeys[SRC_RFS] = FilterKey(_T("SRC_RFS"), true);
 #endif
-#if INTERNAL_SOURCEFILTER_MISC
-    SrcFiltersKeys[SRC_MISC] = FilterKey(_T("SRC_MISC"), true);
+#if INTERNAL_SOURCEFILTER_VTS
+    SrcFiltersKeys[SRC_VTS] = FilterKey(_T("SRC_VTS"), true);
 #endif
 
     // Internal decoders
@@ -412,6 +415,15 @@ CAppSettings::CAppSettings()
 #endif
 #if INTERNAL_DECODER_WMALL
     TraFiltersKeys[TRA_WMALL] = FilterKey(_T("TRA_WMALL"), false);
+#endif
+#if INTERNAL_DECODER_G726
+    TraFiltersKeys[TRA_G726] = FilterKey(_T("TRA_G726"), true);
+#endif
+#if INTERNAL_DECODER_G729
+    TraFiltersKeys[TRA_G729] = FilterKey(_T("TRA_G729"), true);
+#endif
+#if INTERNAL_DECODER_OTHERAUDIO
+    TraFiltersKeys[TRA_OTHERAUDIO] = FilterKey(_T("TRA_OTHERAUDIO"), true);
 #endif
 #if INTERNAL_DECODER_PCM
     TraFiltersKeys[TRA_PCM] = FilterKey(_T("TRA_PCM"), true);
@@ -481,6 +493,15 @@ CAppSettings::CAppSettings()
 #endif
 #if INTERNAL_DECODER_V210_V410
     TraFiltersKeys[TRA_V210_V410] = FilterKey(_T("TRA_V210_V410"), false);
+#endif
+#if INTERNAL_DECODER_PRORES
+    TraFiltersKeys[TRA_PRORES] = FilterKey(_T("TRA_PRORES"), true);
+#endif
+#if INTERNAL_DECODER_DNXHD
+    TraFiltersKeys[TRA_DNXHD] = FilterKey(_T("TRA_DNXHD"), true);
+#endif
+#if INTERNAL_DECODER_OTHERVIDEO
+    TraFiltersKeys[TRA_OTHERVIDEO] = FilterKey(_T("TRA_OTHERVIDEO"), true);
 #endif
 
     ZeroMemory(&DVDPosition, sizeof(DVDPosition));
@@ -988,15 +1009,15 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_PREVENT_MINIMIZE, fPreventMinimize);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_ENHANCED_TASKBAR, bUseEnhancedTaskBar);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_SEARCH_IN_FOLDER, fUseSearchInFolder);
-    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_TIME_TOOLTIP, fUseTimeTooltip);
-    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_TIME_TOOLTIP_POSITION, nTimeTooltipPosition);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_TIME_TOOLTIP, fUseSeekbarHover);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_TIME_TOOLTIP_POSITION, nHoverPosition);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MPC_OSD_SIZE, nOSDSize);
     pApp->WriteProfileString(IDS_R_SETTINGS, IDS_RS_MPC_OSD_FONT, strOSDFont);
 
     // Associated types with icon or not...
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_ASSOCIATED_WITH_ICON, fAssociatedWithIcons);
     // Last Open Dir
-    pApp->WriteProfileString(IDS_R_SETTINGS, IDS_RS_LAST_OPEN_DIR, strLastOpenDir);
+    //pApp->WriteProfileString(IDS_R_SETTINGS, IDS_RS_LAST_OPEN_DIR, strLastOpenDir);
 
     // CASIMIR666 : new settings
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_D3DFULLSCREEN, fD3DFullscreen);
@@ -1054,6 +1075,8 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS, fRememberFilePos);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOSLONGER, iRememberPosForLongerThan);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOSAUDIO, bRememberPosForAudioFiles);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS_PLAYLIST, bRememberExternalPlaylistPos);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS_TRACK_SELECTION, bRememberTrackSelection);
 
     pApp->WriteProfileString(IDS_R_SETTINGS _T("\\") IDS_RS_PNSPRESETS, nullptr, nullptr);
     for (INT_PTR i = 0, j = m_pnspresets.GetCount(); i < j; i++) {
@@ -1235,13 +1258,16 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_USE_AUTOMATIC_CAPTIONS, bUseAutomaticCaptions);
 
     pApp->WriteProfileString(IDS_R_SETTINGS, IDS_LAST_QUICKOPEN_PATH, lastQuickOpenPath);
-    pApp->WriteProfileString(IDS_R_SETTINGS, IDS_LAST_SAVEIMAGE_PATH, lastSaveImagePath);
+    pApp->WriteProfileString(IDS_R_SETTINGS, IDS_LAST_FILESAVECOPY_PATH, lastFileSaveCopyPath);
+    pApp->WriteProfileString(IDS_R_SETTINGS, IDS_LAST_FILEOPENDIR_PATH, lastFileOpenDirPath);
+
 
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_REDIRECT_OPEN_TO_APPEND_THRESHOLD, iRedirectOpenToAppendThreshold);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_SEPARATE_CONTROLS, bFullscreenSeparateControls);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_ALWAYS_USE_SHORT_MENU, bAlwaysUseShortMenu);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_STILL_VIDEO_DURATION, iStillVideoDuration);
     pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_MOUSE_LEFTUP_DELAY, iMouseLeftUpDelay);
+    pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_CAPTURE_DEINTERLACE, bCaptureDeinterlace);
 
     if (fKeepHistory) {
         if (write_full_history) {
@@ -1251,7 +1277,42 @@ void CAppSettings::SaveSettings(bool write_full_history /* = false */)
         }
     }
 
+    size_t maxsize = AfxGetAppSettings().fKeepHistory ? iRecentFilesNumber : 0;
+    CStringW section = L"PlaylistHistory";
+    auto timeToHash = LoadHistoryHashes(section, L"LastUpdated");
+
+    int entries = 0;
+    for (auto iter = timeToHash.rbegin(); iter != timeToHash.rend(); ++iter, ++entries) {
+        CStringW hash = iter->second;
+        if (entries >= maxsize) {
+            PurgeExpiredHash(section, hash);
+        }
+    }
+
     pApp->FlushProfile();
+}
+
+std::multimap<CStringW, CStringW> CAppSettings::LoadHistoryHashes(CStringW section, CStringW dateField) {
+    auto pApp = AfxGetMyApp();
+    auto hashes = pApp->GetSectionSubKeys(section);
+
+    std::multimap<CStringW, CStringW> timeToHash;
+    for (auto const& hash : hashes) {
+        CStringW lastOpened, subSection;
+        subSection.Format(L"%s\\%s", section, static_cast<LPCWSTR>(hash));
+        lastOpened = pApp->GetProfileStringW(subSection, dateField, L"0000-00-00T00:00:00.0Z");
+        if (!lastOpened.IsEmpty()) {
+            timeToHash.insert(std::pair<CStringW, CStringW>(lastOpened, hash));
+        }
+    }
+    return timeToHash;
+}
+
+void CAppSettings::PurgeExpiredHash(CStringW section, CStringW hash) {
+    auto pApp = AfxGetMyApp();
+    CStringW subSection;
+    subSection.Format(L"%s\\%s", section, static_cast<LPCWSTR>(hash));
+    pApp->WriteProfileString(subSection, nullptr, nullptr);
 }
 
 void CAppSettings::LoadExternalFilters(CAutoPtrList<FilterOverride>& filters, LPCTSTR baseKey /*= IDS_R_EXTERNAL_FILTERS*/)
@@ -1312,48 +1373,6 @@ void CAppSettings::LoadExternalFilters(CAutoPtrList<FilterOverride>& filters, LP
         f->dwMerit = pApp->GetProfileInt(key, _T("Merit"), MERIT_DO_NOT_USE + 1);
 
         filters.AddTail(f);
-    }
-}
-
-void CAppSettings::ConvertOldExternalFiltersList()
-{
-    CAutoPtrList<FilterOverride> filters, succeededFilters, failedFilters;
-    // Load the old filters list
-    LoadExternalFilters(filters, IDS_R_FILTERS);
-    if (!filters.IsEmpty()) {
-        POSITION pos = filters.GetHeadPosition();
-        while (pos) {
-            CAutoPtr<FilterOverride>& fo = filters.GetNext(pos);
-
-            CAutoPtr<CFGFilter> pFGF;
-            if (fo->type == FilterOverride::REGISTERED) {
-                pFGF.Attach(DEBUG_NEW CFGFilterRegistry(fo->dispname));
-            } else if (fo->type == FilterOverride::EXTERNAL) {
-                pFGF.Attach(DEBUG_NEW CFGFilterFile(fo->clsid, fo->path, CStringW(fo->name)));
-            }
-            if (!pFGF) {
-                continue;
-            }
-
-            CComPtr<IBaseFilter> pBF;
-            CInterfaceList<IUnknown, &IID_IUnknown> pUnks;
-            if (SUCCEEDED(pFGF->Create(&pBF, pUnks))) {
-                succeededFilters.AddTail(fo);
-            } else {
-                failedFilters.AddTail(fo);
-            }
-        }
-        // Clear the old filters list
-        filters.RemoveAll();
-        SaveExternalFilters(filters, IDS_R_FILTERS);
-        // Save the new filters lists
-#ifndef _WIN64
-        SaveExternalFilters(succeededFilters, IDS_R_EXTERNAL_FILTERS_x86);
-        SaveExternalFilters(failedFilters, IDS_R_EXTERNAL_FILTERS_x64);
-#else
-        SaveExternalFilters(succeededFilters, IDS_R_EXTERNAL_FILTERS_x64);
-        SaveExternalFilters(failedFilters, IDS_R_EXTERNAL_FILTERS_x86);
-#endif
     }
 }
 
@@ -1542,8 +1561,8 @@ void CAppSettings::LoadSettings()
     fPreventMinimize = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_PREVENT_MINIMIZE, FALSE);
     bUseEnhancedTaskBar = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ENHANCED_TASKBAR, TRUE);
     fUseSearchInFolder = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SEARCH_IN_FOLDER, TRUE);
-    fUseTimeTooltip = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_TIME_TOOLTIP, TRUE);
-    nTimeTooltipPosition = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_TIME_TOOLTIP_POSITION, TIME_TOOLTIP_ABOVE_SEEKBAR);
+    fUseSeekbarHover = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_TIME_TOOLTIP, TRUE);
+    nHoverPosition = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_TIME_TOOLTIP_POSITION, TIME_TOOLTIP_ABOVE_SEEKBAR);
     nOSDSize = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MPC_OSD_SIZE, 18);
     LOGFONT lf;
     GetMessageFont(&lf);
@@ -1552,7 +1571,7 @@ void CAppSettings::LoadSettings()
     // Associated types with icon or not...
     fAssociatedWithIcons = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ASSOCIATED_WITH_ICON, TRUE);
     // Last Open Dir
-    strLastOpenDir = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_LAST_OPEN_DIR, _T("C:\\"));
+    //strLastOpenDir = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_LAST_OPEN_DIR, _T("C:\\"));
 
     fAudioTimeShift = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ENABLEAUDIOTIMESHIFT, FALSE);
     iAudioTimeShift = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_AUDIOTIMESHIFT, 0);
@@ -1642,6 +1661,7 @@ void CAppSettings::LoadSettings()
     strOpenTypeLangHint = tmpLangHint;
     bUseFreeType = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_FREETYPE, FALSE);
     bUseMediainfoLoadFileDuration = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_MEDIAINFO_LOAD_FILE_DURATION, FALSE);
+    bCaptureDeinterlace = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_CAPTURE_DEINTERLACE, FALSE);
 
     fClosedCaptions = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_CLOSEDCAPTIONS, FALSE);
     {
@@ -1710,7 +1730,7 @@ void CAppSettings::LoadSettings()
     }
     iVerticalAlignVideo = static_cast<verticalAlignVideoType>(tVertAlign);
 
-    strSubtitlesProviders = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLESPROVIDERS, _T("<|OpenSubtitles2|||1|0|><|OpenSubtitles|||0|0|><|podnapisi|||1|0|><|Napisy24|||0|0|>"));
+    strSubtitlesProviders = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLESPROVIDERS, _T("<|OpenSubtitles2|||1|0|><|podnapisi|||1|0|><|Napisy24|||0|0|>"));
     strSubtitlePaths = pApp->GetProfileString(IDS_R_SETTINGS, IDS_RS_SUBTITLEPATHS, DEFAULT_SUBTITLE_PATHS);
     fUseDefaultSubtitlesStyle = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USEDEFAULTSUBTITLESSTYLE, FALSE);
     fEnableAudioSwitcher = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_ENABLEAUDIOSWITCHER, TRUE);
@@ -1996,9 +2016,11 @@ void CAppSettings::LoadSettings()
     fRememberFilePos = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS, FALSE);
     iRememberPosForLongerThan = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOSLONGER, 5);
     bRememberPosForAudioFiles = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOSAUDIO, TRUE);
-    if (iRememberPosForLongerThan < 1) {
+    if (iRememberPosForLongerThan < 0) {
         iRememberPosForLongerThan = 5;
     }
+    bRememberExternalPlaylistPos = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS_PLAYLIST, TRUE);
+    bRememberTrackSelection = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FILEPOS_TRACK_SELECTION, TRUE);
 
     // playback positions for last played DVDs
     fRememberDVDPos = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_DVDPOS, FALSE);
@@ -2019,7 +2041,7 @@ void CAppSettings::LoadSettings()
     bNotifySkype = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_NOTIFY_SKYPE, FALSE);
 
     nJpegQuality = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_JPEG_QUALITY, 90);
-    if (nJpegQuality < 0 || nJpegQuality > 100) {
+    if (nJpegQuality < 20 || nJpegQuality > 100) {
         nJpegQuality = 90;
     }
 
@@ -2082,7 +2104,9 @@ void CAppSettings::LoadSettings()
     bUseAutomaticCaptions = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_USE_AUTOMATIC_CAPTIONS, FALSE);
 
     lastQuickOpenPath = pApp->GetProfileString(IDS_R_SETTINGS, IDS_LAST_QUICKOPEN_PATH, L"");
-    lastSaveImagePath = pApp->GetProfileString(IDS_R_SETTINGS, IDS_LAST_SAVEIMAGE_PATH, L"");
+    lastFileSaveCopyPath = pApp->GetProfileString(IDS_R_SETTINGS, IDS_LAST_FILESAVECOPY_PATH, L"");
+    lastFileOpenDirPath = pApp->GetProfileString(IDS_R_SETTINGS, IDS_LAST_FILEOPENDIR_PATH, L"");
+
 
     iRedirectOpenToAppendThreshold = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_REDIRECT_OPEN_TO_APPEND_THRESHOLD, 1000);
     bFullscreenSeparateControls = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_FULLSCREEN_SEPARATE_CONTROLS, FALSE);
@@ -2798,14 +2822,12 @@ void CAppSettings::CRecentFileListWithMoreInfo::Add(LPCTSTR fn, ULONGLONG llDVDG
 }
 
 bool CAppSettings::CRecentFileListWithMoreInfo::GetCurrentIndex(size_t& idx) {
-    ASSERT(!current_rfe_hash.IsEmpty());
     for (int i = 0; i < rfe_array.GetCount(); i++) {
         if (rfe_array[i].hash == current_rfe_hash) {
             idx = i;
             return true;
         }
     }
-    ASSERT(false);
     return false;
 }
 
@@ -2881,11 +2903,11 @@ int CAppSettings::CRecentFileListWithMoreInfo::GetCurrentAudioTrack() {
     return -1;
 }
 
-void CAppSettings::CRecentFileListWithMoreInfo::UpdateCurrentSubtitleTrack(int audioIndex) {
+void CAppSettings::CRecentFileListWithMoreInfo::UpdateCurrentSubtitleTrack(int subIndex) {
     size_t idx;
     if (GetCurrentIndex(idx)) {
-        if (rfe_array[idx].SubtitleTrackIndex != audioIndex) {
-            rfe_array[idx].SubtitleTrackIndex = audioIndex;
+        if (rfe_array[idx].SubtitleTrackIndex != subIndex) {
+            rfe_array[idx].SubtitleTrackIndex = subIndex;
             WriteMediaHistorySubtitleIndex(rfe_array[idx]);
         }
     }
@@ -3155,15 +3177,7 @@ void CAppSettings::CRecentFileListWithMoreInfo::ReadMediaHistory() {
         hashes = pApp->GetSectionSubKeys(m_section);
     }
 
-    std::multimap<CStringW, CStringW> timeToHash;
-    for (auto const& hash : hashes) {
-        CStringW lastOpened, subSection;
-        subSection.Format(L"%s\\%s", m_section, static_cast<LPCWSTR>(hash));
-        lastOpened = pApp->GetProfileStringW(subSection, L"LastOpened");
-        if (!lastOpened.IsEmpty()) {
-            timeToHash.insert(std::pair<CStringW, CStringW>(lastOpened, hash));
-        }
-    }
+    auto timeToHash = CAppSettings::LoadHistoryHashes(m_section, L"LastOpened");
 
     rfe_array.RemoveAll();
     int entries = 0;
@@ -3180,9 +3194,7 @@ void CAppSettings::CRecentFileListWithMoreInfo::ReadMediaHistory() {
             }
         }
         if (purge_rfe) { //purge entry
-            CStringW subSection;
-            subSection.Format(L"%s\\%s", m_section, static_cast<LPCWSTR>(hash));
-            pApp->WriteProfileString(subSection, nullptr, nullptr);
+            CAppSettings::PurgeExpiredHash(m_section, hash);
         }
     }
     rfe_array.FreeExtra();
@@ -3389,8 +3401,6 @@ void CAppSettings::UpdateSettings()
                 nAudioBoostTmp = 300;
             }
             pApp->WriteProfileInt(IDS_R_SETTINGS, IDS_RS_AUDIOBOOST, nAudioBoostTmp);
-
-            ConvertOldExternalFiltersList();
         }
         {
             const CString section(_T("Settings"));
@@ -3583,3 +3593,66 @@ void CAppSettings::UpdateSettings()
     }
 }
 
+// RenderersSettings.h
+
+CRenderersData* GetRenderersData() {
+    return &AfxGetMyApp()->m_Renderers;
+}
+
+CRenderersSettings& GetRenderersSettings() {
+    auto& s = AfxGetAppSettings();
+    if (s.m_RenderersSettings.subPicQueueSettings.nSize > 0) {
+        // queue does not work properly with libass
+        if (s.bRenderSSAUsingLibass || s.bRenderSRTUsingLibass) {
+            s.m_RenderersSettings.subPicQueueSettings.nSize = 0;
+        }
+    }
+    return s.m_RenderersSettings;
+}
+
+void CAppSettings::SavePlayListPosition(CStringW playlistPath, UINT position) {
+    auto pApp = AfxGetMyApp();
+    ASSERT(pApp);
+
+    auto hash = getRFEHash(playlistPath);
+
+    CStringW subSection, t;
+    subSection.Format(L"%s\\%s", L"PlaylistHistory", static_cast<LPCWSTR>(hash));
+    pApp->WriteProfileInt(subSection, L"Position", position);
+
+    auto now = std::chrono::system_clock::now();
+    auto nowISO = date::format<wchar_t>(L"%FT%TZ", date::floor<std::chrono::microseconds>(now));
+    CStringW lastUpdated = CStringW(nowISO.c_str());
+    pApp->WriteProfileStringW(subSection, L"LastUpdated", lastUpdated);
+}
+
+UINT CAppSettings::GetSavedPlayListPosition(CStringW playlistPath) {
+    auto pApp = AfxGetMyApp();
+    ASSERT(pApp);
+
+    auto hash = getRFEHash(playlistPath);
+
+    CStringW subSection, t;
+    subSection.Format(L"%s\\%s", L"PlaylistHistory", static_cast<LPCWSTR>(hash));
+    UINT position = pApp->GetProfileIntW(subSection, L"Position", -1);
+    if (position != (UINT)-1) {
+        return position;
+    }
+    return 0;
+}
+
+// SubRendererSettings.h
+
+// Todo: move individual members of AppSettings into SubRendererSettings struct and use this function to get a reference to it
+SubRendererSettings GetSubRendererSettings() {
+    const auto& s = AfxGetAppSettings();
+    SubRendererSettings srs;
+    srs.defaultStyle = s.subtitlesDefStyle;
+    srs.overrideDefaultStyle = s.fUseDefaultSubtitlesStyle;
+#if USE_LIBASS
+    srs.renderSSAUsingLibass = s.bRenderSSAUsingLibass;
+    srs.renderSRTUsingLibass = s.bRenderSRTUsingLibass;
+#endif
+    OpenTypeLang::CStringAtoHintStr(srs.openTypeLangHint, s.strOpenTypeLangHint);
+    return srs;
+}
