@@ -168,7 +168,9 @@ Name: ca;    MessagesFile: compiler:Languages\Catalan.isl
 Name: cs;    MessagesFile: compiler:Languages\Czech.isl
 Name: da;    MessagesFile: compiler:Languages\Danish.isl
 Name: de;    MessagesFile: compiler:Languages\German.isl
+#if VER <= EncodeVer(5,5,9)
 Name: el;    MessagesFile: compiler:Languages\Greek.isl
+#endif
 Name: en_GB; MessagesFile: Languages\EnglishBritish.isl
 Name: es;    MessagesFile: compiler:Languages\Spanish.isl
 Name: eu;    MessagesFile: Languages\Basque.isl
@@ -197,7 +199,9 @@ Name: ro;    MessagesFile: Languages\Romanian.isl
 Name: ru;    MessagesFile: compiler:Languages\Russian.isl
 Name: sk;    MessagesFile: Languages\Slovak.isl
 Name: sl;    MessagesFile: compiler:Languages\Slovenian.isl
+#if VER <= EncodeVer(5,5,9)
 Name: sr;    MessagesFile: compiler:Languages\SerbianCyrillic.isl
+#endif
 Name: sv;    MessagesFile: Languages\Swedish.isl
 Name: th_TH; MessagesFile: Languages\Thai.isl
 Name: tt;    MessagesFile: Languages\Tatar.isl
@@ -312,22 +316,28 @@ Type: files; Name: {commondesktop}\Media Player Classic - Home Cinema.lnk; Check
 Type: files; Name: {#quick_launch}\Media Player Classic - Home Cinema.lnk; Check: not IsTaskSelected('quicklaunchicon')    and IsUpgrade(); OnlyBelowVersion: 6.01
 
 ; Old ffmpeg dlls from LAV Filters
+Type: files; Name: {app}\{#lavfiltersdir}\avcodec-lav-60.dll;   Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avcodec-lav-59.dll;   Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avcodec-lav-58.dll;   Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avcodec-lav-57.dll;   Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\avfilter-lav-9.dll;   Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avfilter-lav-8.dll;   Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avfilter-lav-7.dll;   Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\avformat-lav-60.dll;  Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avformat-lav-59.dll;  Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avformat-lav-58.dll;  Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avformat-lav-57.dll;  Check: IsUpgrade()
-Type: files; Name: {app}\{#lavfiltersdir}\avresample-lav-4.dll; Check: IsUpgrade()
-Type: files; Name: {app}\{#lavfiltersdir}\avresample-lav-3.dll; Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\avutil-lav-58.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avutil-lav-57.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avutil-lav-56.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\avutil-lav-55.dll;    Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\swresample-lav-4.dll; Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\swscale-lav-7.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\swscale-lav-6.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\swscale-lav-5.dll;    Check: IsUpgrade()
 Type: files; Name: {app}\{#lavfiltersdir}\swscale-lav-4.dll;    Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\avresample-lav-4.dll; Check: IsUpgrade()
+Type: files; Name: {app}\{#lavfiltersdir}\avresample-lav-3.dll; Check: IsUpgrade()
 
 #ifdef x64Build
 ; Super old LAV files

@@ -263,6 +263,10 @@ private:
     CComQIPtr<IAMOpenProgress> m_pAMOP;
     CComQIPtr<IAMMediaContent, &IID_IAMMediaContent> m_pAMMC[2];
     CComQIPtr<IAMNetworkStatus, &IID_IAMNetworkStatus> m_pAMNS;
+    CComQIPtr<IAMStreamSelect> m_pAudioSwitcherSS;
+    CComQIPtr<IAMStreamSelect> m_pSplitterSS;
+    CComQIPtr<IAMStreamSelect> m_pSplitterDubSS;
+    CComQIPtr<IAMStreamSelect> m_pOtherSS[2];
     // SmarkSeek
     CComPtr<IGraphBuilder2>         m_pGB_preview;
     CComQIPtr<IMediaControl>        m_pMC_preview;
@@ -310,6 +314,7 @@ private:
     CComPtr<IUnknown> m_pProv;
 
     CComQIPtr<IDirectVobSub> m_pDVS;
+    CComQIPtr<IDirectVobSub2> m_pDVS2;
 
     bool m_bUsingDXVA;
     LPCTSTR m_HWAccelType;
@@ -334,11 +339,12 @@ private:
     // StatusBar message text parts
     CString currentAudioLang;
     CString currentSubLang;
-    CString m_statusbarVideoFourCC;
+    CString m_statusbarVideoFormat;
+    CString m_statusbarAudioFormat;
     CString m_statusbarVideoSize;
 
     SubtitleInput* GetSubtitleInput(int& i, bool bIsOffset = false);
-    bool IsValidAudioStream(int i);
+    int UpdateSelectedAudioStreamInfo(int index, AM_MEDIA_TYPE* pmt, LCID lcid);
     bool IsValidSubtitleStream(int i);
     int GetSelectedSubtitleTrackIndex();
 
@@ -357,7 +363,7 @@ private:
     CSize GetZoomWindowSize(double dScale);
     CRect GetZoomWindowRect(const CSize& size);
     void ZoomVideoWindow(double dScale = ZOOM_DEFAULT_LEVEL);
-    double GetZoomAutoFitScale(bool bLargerOnly = false);
+    double GetZoomAutoFitScale();
 
     void SetAlwaysOnTop(int iOnTop);
     bool WindowExpectedOnTop();
@@ -388,6 +394,7 @@ private:
     CMPCThemeMenu m_favoritesMenu;
     CMPCThemeMenu m_shadersMenu;
     CMPCThemeMenu m_recentFilesMenu;
+    int recentFilesMenuFromMRUSequence;
 
     UINT m_nJumpToSubMenusCount;
 
@@ -552,6 +559,7 @@ protected:
     DWORD       m_iDVDTitle;
     int         m_loadedAudioTrackIndex = -1;
     int         m_loadedSubtitleTrackIndex = -1;
+    int         m_audioTrackCount = 0;
 
     double m_dSpeedRate;
     double m_ZoomX, m_ZoomY, m_PosX, m_PosY;
@@ -935,6 +943,7 @@ public:
     afx_msg void OnViewSubresync();
     afx_msg void OnUpdateViewSubresync(CCmdUI* pCmdUI);
     afx_msg void OnViewPlaylist();
+    afx_msg void OnPlaylistToggleShuffle();
     afx_msg void OnUpdateViewPlaylist(CCmdUI* pCmdUI);
     afx_msg void OnViewEditListEditor();
     afx_msg void OnEDLIn();
@@ -949,8 +958,6 @@ public:
     afx_msg void OnUpdateViewCapture(CCmdUI* pCmdUI);
     afx_msg void OnViewDebugShaders();
     afx_msg void OnUpdateViewDebugShaders(CCmdUI* pCmdUI);
-    afx_msg void OnViewMPCTheme();
-    afx_msg void OnUpdateViewMPCTheme(CCmdUI* pCmdUI);
     afx_msg void OnViewMinimal();
     afx_msg void OnUpdateViewMinimal(CCmdUI* pCmdUI);
     afx_msg void OnViewCompact();
@@ -1167,11 +1174,11 @@ public:
     void ReleasePreviewGraph();
     HRESULT PreviewWindowHide();
     HRESULT PreviewWindowShow(REFERENCE_TIME rtCur2);
+    HRESULT HandleMultipleEntryRar(CStringW fn);
     bool CanPreviewUse();
 
     CFullscreenWnd* m_pDedicatedFSVideoWnd;
     CVMROSD     m_OSD;
-    bool        m_bOSDDisplayTime;
     int         m_nCurSubtitle;
     long        m_lSubtitleShift;
     REFERENCE_TIME m_rtCurSubPos;

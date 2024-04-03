@@ -8,7 +8,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2024-01-05 15:29:45+0000\n"
+"POT-Creation-Date: 2024-03-27 16:45:29+0000\n"
 "PO-Revision-Date: 2020-01-02 07:46+0000\n"
 "Last-Translator: Cyril Provence <ywa78408@eveav.com>, 2024\n"
 "Language-Team: French (https://app.transifex.com/mpchc/teams/106126/fr/)\n"
@@ -230,16 +230,12 @@ msgid "Version:"
 msgstr "Version :"
 
 msgctxt "IDD_ABOUTBOX_IDC_STATIC"
-msgid "Compiler:"
-msgstr "Compilateur :"
+msgid "Build date:"
+msgstr "Date de compilation :"
 
 msgctxt "IDD_ABOUTBOX_IDC_LAVFILTERS_VERSION"
 msgid "Not used"
 msgstr "Non utilisé"
-
-msgctxt "IDD_ABOUTBOX_IDC_STATIC"
-msgid "Build date:"
-msgstr "Date de compilation :"
 
 msgctxt "IDD_ABOUTBOX_IDC_STATIC"
 msgid "Operating system"
@@ -461,9 +457,13 @@ msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC2"
 msgid "Auto fit factor:"
 msgstr "Facteur de zoom auto. :"
 
-msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC3"
-msgid "%"
-msgstr "%"
+msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC"
+msgid "min %"
+msgstr "min %"
+
+msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC"
+msgid "max %"
+msgstr "max %"
 
 msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC4"
 msgid "Vertical Alignment:"
@@ -1885,11 +1885,11 @@ msgstr "Taille des boutons de contrôle"
 
 msgctxt "IDD_PPAGETHEME_IDC_STATIC4"
 msgid "Seekbar"
-msgstr "Barre de défilement"
+msgstr "Barre de lecture"
 
 msgctxt "IDD_PPAGETHEME_IDC_STATIC"
 msgid "Modern Seekbar height:"
-msgstr "Hauteur de la barre de recherche moderne:"
+msgstr "Hauteur de la barre de lecture moderne:"
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK8"
 msgid "Hover:"
@@ -1905,7 +1905,7 @@ msgstr "Largeur de l'aperçu (% d'écran)"
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK2"
 msgid "Show chapter marks on seekbar"
-msgstr "Afficher la position des chapitres dans la barre de déplacement"
+msgstr "Afficher la position des chapitres"
 
 msgctxt "IDD_PPAGETHEME_IDC_STATIC10"
 msgid "Status Bar Elements"
@@ -1918,6 +1918,10 @@ msgstr "Langue de la piste"
 msgctxt "IDD_PPAGETHEME_IDC_CHECK4"
 msgid "Video Info"
 msgstr "Infos vidéo"
+
+msgctxt "IDD_PPAGETHEME_IDC_CHECK12"
+msgid "Audio Info"
+msgstr "Infos audio"
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK5"
 msgid "FPS"
@@ -1951,6 +1955,10 @@ msgctxt "IDD_PPAGETHEME_IDC_STATIC23"
 msgid "Font size:"
 msgstr "Taille de police:"
 
+msgctxt "IDD_PPAGETHEME_IDC_CHECK13"
+msgid "Display Current T&ime"
+msgstr ""
+
 msgctxt "IDD_PPAGETHEME_IDC_STATIC"
 msgid "Window Behavior"
 msgstr "Comportement de la fenêtre"
@@ -1973,8 +1981,20 @@ msgstr "Intégration à Windows"
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK_ENHANCED_TASKBAR"
 msgid "Use enhanced taskbar features"
-msgstr "Utiliser les fonctionnalités avancées de la barre des tâches"
+msgstr "Affichage barre des tâches avancé"
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK11"
 msgid "Control via Windows UI (SMTC)"
-msgstr "Contrôler via l'interface Windows (SMTC)"
+msgstr "Contrôle via l'interface Windows SMTC"
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_CAPTION"
+msgid "Select Media from RAR"
+msgstr "Sélectionner le média depuis le RAR"
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_IDOK"
+msgid "Select"
+msgstr "Sélectionner"
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_IDCANCEL"
+msgid "Cancel"
+msgstr "Annuler"

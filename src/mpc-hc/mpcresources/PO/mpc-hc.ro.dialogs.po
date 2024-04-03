@@ -229,16 +229,12 @@ msgid "Version:"
 msgstr "Versiune:"
 
 msgctxt "IDD_ABOUTBOX_IDC_STATIC"
-msgid "Compiler:"
-msgstr "Compilator:"
+msgid "Build date:"
+msgstr "Data compilării:"
 
 msgctxt "IDD_ABOUTBOX_IDC_LAVFILTERS_VERSION"
 msgid "Not used"
 msgstr "Nu s-a folosit"
-
-msgctxt "IDD_ABOUTBOX_IDC_STATIC"
-msgid "Build date:"
-msgstr "Data compilării:"
 
 msgctxt "IDD_ABOUTBOX_IDC_STATIC"
 msgid "Operating system"
@@ -461,9 +457,13 @@ msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC2"
 msgid "Auto fit factor:"
 msgstr "Factor de auto-potrivire:"
 
-msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC3"
-msgid "%"
-msgstr "%"
+msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC"
+msgid "min %"
+msgstr ""
+
+msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC"
+msgid "max %"
+msgstr ""
 
 msgctxt "IDD_PPAGEPLAYBACK_IDC_STATIC4"
 msgid "Vertical Alignment:"
@@ -1908,6 +1908,10 @@ msgctxt "IDD_PPAGETHEME_IDC_CHECK4"
 msgid "Video Info"
 msgstr ""
 
+msgctxt "IDD_PPAGETHEME_IDC_CHECK12"
+msgid "Audio Info"
+msgstr ""
+
 msgctxt "IDD_PPAGETHEME_IDC_CHECK5"
 msgid "FPS"
 msgstr ""
@@ -1940,6 +1944,10 @@ msgctxt "IDD_PPAGETHEME_IDC_STATIC23"
 msgid "Font size:"
 msgstr ""
 
+msgctxt "IDD_PPAGETHEME_IDC_CHECK13"
+msgid "Display Current T&ime"
+msgstr ""
+
 msgctxt "IDD_PPAGETHEME_IDC_STATIC"
 msgid "Window Behavior"
 msgstr ""
@@ -1966,4 +1974,16 @@ msgstr ""
 
 msgctxt "IDD_PPAGETHEME_IDC_CHECK11"
 msgid "Control via Windows UI (SMTC)"
+msgstr ""
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_CAPTION"
+msgid "Select Media from RAR"
+msgstr ""
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_IDOK"
+msgid "Select"
+msgstr ""
+
+msgctxt "IDD_RAR_ENTRY_SELECTOR_IDCANCEL"
+msgid "Cancel"
 msgstr ""

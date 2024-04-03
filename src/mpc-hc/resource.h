@@ -309,6 +309,7 @@
 #define ID_PLAY_PLAYBACKRATE_FPS24      5020
 #define ID_PLAY_PLAYBACKRATE_FPS25      5021
 #define ID_PLAY_PLAYBACKRATE_END        5029
+#define ID_PLAYLIST_TOGGLE_SHUFFLE      5030
 #define IDS_FILTER_SETTINGS_CAPTION     7000
 #define IDD_OPEN_DLG                    10000
 #define IDD_MEDIATYPES_DLG              10002
@@ -483,7 +484,6 @@
 #define IDC_CHECK_SUB_AR_COMPENSATION   12029
 #define IDC_CHECK_ALLOW_DROPPING_SUBPIC 12030
 #define IDC_DSSYSDEF                    12100
-#define IDC_DSOLD                       12101
 #define IDC_DSOVERLAYMIXER              12102
 #define IDC_DSVMR9WIN                   12104
 #define IDC_DSVMR9REN                   12106
@@ -616,6 +616,7 @@
 #define IDD_CMD_LINE_HELP               20016
 #define IDD_CRASH_REPORTER              20017
 #define IDD_PPAGEDPICALC                20018
+#define IDD_RAR_ENTRY_SELECTOR          20019
 #define IDB_DT_CB_96                    20050
 #define IDB_DT_CB_120                   20051
 #define IDB_DT_CB_144                   20052
@@ -652,7 +653,6 @@
 #define IDC_VERSION                     22011
 #define IDC_SHOW_OSD                    22013
 #define IDC_EVR_BUFFERS_TXT             22014
-#define IDC_MPC_COMPILER                22015
 #define IDC_LAVFILTERS_VERSION          22016
 #define IDC_DSVMR9ALTERNATIVEVSYNC      22017
 #define IDC_HOMEPAGE_LINK               22018
@@ -739,8 +739,7 @@
 #define ID_VIEW_HALFFLOATINGPOINTPROCESSING 24043
 #define ID_FILE_RECYCLE                 24044
 #define ID_VIEW_MPCTHEME                24045
-#define IDS_AG_TOGGLE_MPCTHEME          24046
-#define PLAYER_PLAYLIST_LVN_ITEMCHANGED 24048
+#define PLAYER_PLAYLIST_UPDATE_SCROLLBAR 24048
 #define IDF_LOGO4                       24050
 #define ID_SUBTITLES_DEFAULT_STYLE      24051
 #define ID_SUB_POS_DOWN                 24052
@@ -768,7 +767,6 @@
 #define IDS_AG_COMMAND                  32833
 #define IDS_AG_KEY                      32834
 #define IDS_AG_MOUSE                    32836
-#define IDS_AG_MOUSE_FS                 32837
 #define IDS_AG_APP_COMMAND              32838
 #define IDS_AG_MEDIAFILES               32871
 #define IDS_AG_ALLFILES                 32872
@@ -1095,7 +1093,6 @@
 #define ID_PLAY_REPEAT_AB               33453
 #define IDS_AG_MOUSE_MODIFIER           33453
 #define ID_PLAY_REPEAT_AB_MARK_A        33454
-#define IDS_AG_MOUSE_FS_MODIFIER        33454
 #define ID_PLAY_REPEAT_AB_MARK_B        33455
 #define ID_VIEW_ZOOM_SUB                33456
 #define ID_VIEW_ZOOM_ADD                33457
@@ -1648,7 +1645,6 @@
 #define IDS_PPAGE_FS_CLN_AUDIO_DELAY    57531
 #define IDS_PPAGEADVANCED_DEFAULTTOOLBARSIZE 57532
 #define IDS_PPAGEADVANCED_USE_LEGACY_TOOLBAR 57533
-#define IDS_SUBTITLE_RENDERER_ASS_FILTER 57534
 #define IDS_SUBMENU_COPYURL             57535
 #define IDS_CMD_VIEWPRESET              57536
 #define IDS_CMD_MUTE                    57537
@@ -1705,6 +1701,14 @@
 #define IDS_PPAGEADVANCED_USE_MEDIAINFO_LOAD_FILE_DURATION  57635
 #define IDS_TIMER_SHOW_PERCENTAGE       57636
 #define IDS_SUBDL_DLG_FAILED_DL         57637
+#define IDS_PPAGEADVANCED_FILEPOS_PLAYLIST 57638
+#define IDS_PPAGEADVANCED_FILEPOS_TRACK_SELECTION 57639
+#define IDS_PPAGEADVANCED_YDL_AUDIO_FORMAT 57640
+#define IDS_PPAGEADVANCED_PREVENT_DISPLAY_SLEEP 57641
+#define IDS_PPAGEADVANCED_STILL_VIDEO_DURATION 57642
+#define IDS_PPAGEADVANCED_CAPTURE_DEINTERLACE 57643
+#define IDS_PLAYLIST_TOGGLE_SHUFFLE 57644
+
 
 #define IDS_ARS_WASAPI_MODE             57700
 #define IDS_ARS_EXCLUSIVE               57701

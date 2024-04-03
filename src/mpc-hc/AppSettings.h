@@ -107,7 +107,6 @@ enum MpcCaptionState {
 
 enum {
     VIDRNDT_DS_DEFAULT        = 0,
-    VIDRNDT_DS_OLDRENDERER    = 1,
     VIDRNDT_DS_OVERLAYMIXER   = 2,
     VIDRNDT_DS_VMR9WINDOWED   = 4,
     VIDRNDT_DS_VMR9RENDERLESS = 6,
@@ -148,8 +147,8 @@ enum MCE_RAW_INPUT {
 
 #define AUDRNDT_NULL_COMP       _T("Null Audio Renderer (Any)")
 #define AUDRNDT_NULL_UNCOMP     _T("Null Audio Renderer (Uncompressed)")
-#define AUDRNDT_INTERNAL        _T("Internal Audio Renderer")
-#define AUDRNDT_SANEAR          _T("SaneAR Audio Renderer")
+#define AUDRNDT_INTERNAL        _T("Internal Audio Renderer") // Use this as device name for SaneAR
+#define AUDRNDT_SANEAR          _T("SaneAR Audio Renderer") // This only as title
 #define AUDRNDT_MPC             L"MPC Audio Renderer"
 
 
@@ -158,6 +157,12 @@ enum MCE_RAW_INPUT {
 #define DEFAULT_JUMPDISTANCE_2  5000
 #define DEFAULT_JUMPDISTANCE_3  20000
 
+#define MIN_AUTOFIT_SCALE_FACTOR 25
+#define MAX_AUTOFIT_SCALE_FACTOR 100
+#define DEF_MIN_AUTOFIT_SCALE_FACTOR 40
+#define DEF_MAX_AUTOFIT_SCALE_FACTOR 80
+
+#define NO_FIXED_POSITION CPoint(INT_MIN, INT_MIN)
 
 enum dvstype {
     DVS_HALF,
@@ -260,16 +265,16 @@ struct AutoChangeMode {
 struct AutoChangeFullscreenMode {
     bool                        bEnabled = false;
     std::vector<AutoChangeMode> modes;
-    bool                        bApplyDefaultModeAtFSExit = true;
+    bool                        bApplyDefaultModeAtFSExit = false;
     bool                        bRestoreResAfterProgExit = true;
     unsigned                    uDelay = 0u;
 };
 
+#define ACCEL_LIST_SIZE 200
+
 struct wmcmd_base : public ACCEL {
     BYTE mouse;
-    BYTE mouseFS;
     BYTE mouseVirt;
-    BYTE mouseFSVirt;
     DWORD dwname;
     UINT appcmd;
 
@@ -302,18 +307,14 @@ struct wmcmd_base : public ACCEL {
         0, 0, 0
     })
     , mouse(NONE)
-    , mouseFS(NONE)
     , mouseVirt(0)
-    , mouseFSVirt(0)
     , dwname(0)
     , appcmd(0) {}
 
-    constexpr wmcmd_base(WORD _cmd, WORD _key, BYTE _fVirt, DWORD _dwname, UINT _appcmd = 0, BYTE _mouse = NONE, BYTE _mouseFS = NONE, BYTE _mouseVirt = 0, BYTE _mouseFSVirt = 0)
+    constexpr wmcmd_base(WORD _cmd, WORD _key, BYTE _fVirt, DWORD _dwname, UINT _appcmd = 0, BYTE _mouse = NONE, BYTE _mouseVirt = 0)
         : ACCEL{ _fVirt, _key, _cmd }
         , mouse(_mouse)
-        , mouseFS(_mouseFS)
         , mouseVirt(_mouseVirt)
-        , mouseFSVirt(_mouseFSVirt)
         , dwname(_dwname)
         , appcmd(_appcmd) {}
 
@@ -355,8 +356,6 @@ public:
         appcmd = default_cmd->appcmd;
         mouse = default_cmd->mouse;
         mouseVirt = default_cmd->mouseVirt;
-        mouseFS = default_cmd->mouseFS;
-        mouseFSVirt = default_cmd->mouseFSVirt;
         rmcmd.Empty();
         rmrepcnt = 5;
     }
@@ -367,8 +366,6 @@ public:
                appcmd != default_cmd->appcmd ||
                mouse != default_cmd->mouse ||
                mouseVirt != default_cmd->mouseVirt ||
-               mouseFS != default_cmd->mouseFS ||
-               mouseFSVirt != default_cmd->mouseFSVirt ||
                !rmcmd.IsEmpty() ||
                rmrepcnt != 5;
     }
@@ -506,6 +503,8 @@ class CAppSettings
         LPCTSTR m_section;
         REFERENCE_TIME persistedFilePosition = 0;
         CString current_rfe_hash;
+        int rfe_last_added = 0;
+        int listModifySequence = 0;
 
         int GetSize() {
             return (int)rfe_array.GetCount();
@@ -516,7 +515,7 @@ class CAppSettings
             return rfe_array[nIndex];
         }
 
-        void Remove(size_t nIndex);
+        //void Remove(size_t nIndex);
         void Add(LPCTSTR fn);
         void Add(LPCTSTR fn, ULONGLONG llDVDGuid);
         void Add(RecentFileEntry r, bool current_open = false);
@@ -547,6 +546,7 @@ class CAppSettings
         bool LoadMediaHistoryEntry(CStringW hash, RecentFileEntry& r);
         void MigrateLegacyHistory();
         void SetSize(size_t nSize);
+        void RemoveAll();
     };
 
 public:
@@ -563,6 +563,7 @@ public:
     DVD_HMSF_TIMECODE   DVDPosition;
 
     CSize sizeFixedWindow;
+    CPoint fixedWindowPosition;
     bool HasFixedWindowSize() const {
         return sizeFixedWindow.cx > 0 || sizeFixedWindow.cy > 0;
     }
@@ -581,6 +582,7 @@ public:
     bool            fAllowMultipleInst;
     bool            fTrayIcon;
     bool            fShowOSD;
+    bool            fShowCurrentTimeInOSD;
     bool            fLimitWindowProportions;
     bool            fSnapToDesktopEdges;
     bool            fHideCDROMsSubMenu;
@@ -650,7 +652,8 @@ public:
     } eLoopMode;
 
     bool            fRememberZoomLevel;
-    int             nAutoFitFactor;
+    int             nAutoFitFactorMin;
+    int             nAutoFitFactorMax;
     int             iZoomLevel;
     CStringW        strAudiosLanguageOrder;
     CStringW        strSubtitlesLanguageOrder;
@@ -906,7 +909,7 @@ public:
         INTERNAL,
         VS_FILTER,
         XY_SUB_FILTER,
-        ASS_FILTER,
+        RESERVED, // unused
         NONE,
     };
 
@@ -943,6 +946,7 @@ public:
     bool bShowFPSInStatusbar;
     bool bShowABMarksInStatusbar;
     bool bShowVideoInfoInStatusbar;
+    bool bShowAudioFormatInStatusbar;
 
     bool bAddLangCodeWhenSaveSubtitles;
     bool bUseTitleInRecentFileList;
@@ -1008,8 +1012,11 @@ public:
     CAppSettings& operator = (const CAppSettings&) = delete;
 
     void            SaveSettings(bool write_full_history = false);
+    void            ClearRecentFiles();
+    static void     PurgeMediaHistory(size_t maxsize = 0);
+    static void     PurgePlaylistHistory(size_t maxsize = 0);
     static std::multimap<CStringW, CStringW> LoadHistoryHashes(CStringW section, CStringW dateField);
-    static void PurgeExpiredHash(CStringW section, CStringW hash);
+    static void     PurgeExpiredHash(CStringW section, CStringW hash);
     void            LoadSettings();
     void            SaveExternalFilters() {
         if (bInitialized) {
