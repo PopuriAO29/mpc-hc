@@ -1062,3 +1062,110 @@ CPoint CMPCThemeUtil::GetRegionOffset(CWnd* window) {
     CPoint offset = tcr.TopLeft() - twr.TopLeft();
     return offset;
 }
+
+void CMPCThemeUtil::AdjustDynamicWidgetPair(CWnd* window, int leftWidget, int rightWidget, WidgetPairType lType, WidgetPairType rType) {
+    if (window && IsWindow(window->m_hWnd)) {
+        DpiHelper dpiWindow;
+        dpiWindow.Override(window->GetSafeHwnd());
+        LONG dynamicSpace = dpiWindow.ScaleX(5);
+
+
+
+        CWnd* leftW = window->GetDlgItem(leftWidget);
+        CWnd* rightW = window->GetDlgItem(rightWidget);
+
+        WidgetPairType ll = lType;
+        WidgetPairType rr = rType;
+
+        if (true || lType == WidgetPairAuto) {
+            LRESULT lRes = leftW->SendMessage(WM_GETDLGCODE, 0, 0);
+            DWORD buttonType = (leftW->GetStyle() & BS_TYPEMASK);
+
+            if (DLGC_BUTTON == (lRes & DLGC_BUTTON) && (buttonType == BS_CHECKBOX || buttonType == BS_AUTOCHECKBOX)) {
+                lType = WidgetPairCheckBox;
+            } else { //we only support checkbox or text on the left, just assume it's text now
+                lType = WidgetPairText;
+            }
+        }
+
+        if (true || rType == WidgetPairAuto) {
+            TCHAR windowClass[MAX_PATH];
+            ::GetClassName(rightW->GetSafeHwnd(), windowClass, _countof(windowClass));
+
+            if (0 == _tcsicmp(windowClass, WC_COMBOBOX)) {
+                rType = WidgetPairCombo;
+            } else { //we only support combo or edit on the right, just assume it's edit now
+                rType = WidgetPairEdit;
+            }
+        }
+
+        if (leftW && rightW && IsWindow(leftW->m_hWnd) && IsWindow(rightW->m_hWnd)) {
+            CRect l, r;
+            LONG leftWantsRight, rightWantsLeft;
+
+            leftW->GetWindowRect(l);
+            leftW->GetOwner()->ScreenToClient(l);
+            rightW->GetWindowRect(r);
+            rightW->GetOwner()->ScreenToClient(r);
+            CDC* lpDC = leftW->GetDC();
+            CFont* pFont = leftW->GetFont();
+            leftWantsRight = l.right;
+            rightWantsLeft = r.left;
+            {
+                int left = l.left;
+                if (lType == WidgetPairCheckBox) {
+                    left += dpiWindow.GetSystemMetricsDPI(SM_CXMENUCHECK) + 2;
+                }
+
+                CFont* pOldFont = lpDC->SelectObject(pFont);
+                TEXTMETRIC tm;
+                lpDC->GetTextMetricsW(&tm);
+
+                CString str;
+                leftW->GetWindowTextW(str);
+                CSize szText = lpDC->GetTextExtent(str);
+                lpDC->SelectObject(pOldFont);
+
+                leftWantsRight = left + szText.cx + tm.tmAveCharWidth;
+                leftW->ReleaseDC(lpDC);
+            }
+
+            {
+                if (rType == WidgetPairCombo) {
+                    //int wantWidth = (int)::SendMessage(rightW->m_hWnd, CB_GETDROPPEDWIDTH, 0, 0);
+                    CComboBox *cb = DYNAMIC_DOWNCAST(CComboBox, rightW);
+                    if (cb) {
+                        int wantWidth = CorrectComboListWidth(*cb);
+                        if (wantWidth != CB_ERR) {
+                            rightWantsLeft = r.right - wantWidth - GetSystemMetrics(SM_CXVSCROLL);
+                        }
+                    }
+                }
+            }
+            CRect cl = l, cr = r;
+            if (leftWantsRight > rightWantsLeft - dynamicSpace //overlaps; we will assume defaults are best
+                || (leftWantsRight < l.right && rightWantsLeft > r.left) // there is no need to resize
+                || (lType == WidgetPairText && DT_RIGHT == (leftW->GetStyle() & DT_RIGHT)) ) //right aligned text not supported, as the right edge is fixed
+            {
+                //do nothing
+            } else {
+                l.right = leftWantsRight;
+                //if necessary space would shrink the right widget, instead get as close to original size as possible
+                //this minimizes noticeable layout changes
+                r.left = std::min(rightWantsLeft, std::max(l.right + dynamicSpace, r.left));
+            }
+            if ((lType == WidgetPairText || lType == WidgetPairCheckBox) && (rType == WidgetPairCombo || rType == WidgetPairEdit)) {
+                l.top = r.top;
+                l.bottom += r.Height() - l.Height();
+                leftW->ModifyStyle(0, SS_CENTERIMAGE);
+            }
+
+            if (l != cl) {
+                leftW->MoveWindow(l);
+            }
+            if (r != cr) {
+                rightW->MoveWindow(r);
+            }
+        }
+    }
+}

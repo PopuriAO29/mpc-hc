@@ -1253,7 +1253,7 @@ struct ExternalObject {
 static CAtlList<ExternalObject> s_extObjs;
 static CCritSec s_csExtObjs;
 
-HRESULT LoadExternalObject(LPCTSTR path, REFCLSID clsid, REFIID iid, void** ppv)
+HRESULT LoadExternalObject(LPCTSTR path, REFCLSID clsid, REFIID iid, void** ppv, IUnknown* aggregate)
 {
     CheckPointer(ppv, E_POINTER);
 
@@ -1284,10 +1284,10 @@ HRESULT LoadExternalObject(LPCTSTR path, REFCLSID clsid, REFIID iid, void** ppv)
         typedef HRESULT(__stdcall * PDllGetClassObject)(REFCLSID rclsid, REFIID riid, LPVOID * ppv);
         PDllGetClassObject p = (PDllGetClassObject)GetProcAddress(hInst, "DllGetClassObject");
 
-        if (p && FAILED(hr = p(clsid, iid, ppv))) {
+        if (p && (aggregate || FAILED(hr = p(clsid, iid, ppv)))) {
             CComPtr<IClassFactory> pCF;
             if (SUCCEEDED(hr = p(clsid, IID_PPV_ARGS(&pCF)))) {
-                hr = pCF->CreateInstance(nullptr, iid, ppv);
+                hr = pCF->CreateInstance(aggregate, iid, ppv);
             }
         }
     }
@@ -1832,6 +1832,18 @@ CString ReftimeToString3(const REFERENCE_TIME& rtVal)
 
     strTemp.Format(_T("%02d:%02d"), lMinute, lSecond);
     return strTemp;
+}
+
+//for compatibility with mpc-be ReftimeToString2, which has option to exclude hours
+CStringW ReftimeToString4(REFERENCE_TIME rt, bool showZeroHours /* = true*/)
+{
+    if (rt == INT64_MIN) {
+        return L"INVALID TIME";
+    }
+
+    DVD_HMSF_TIMECODE tc = RT2HMSF(rt);
+
+    return DVDtimeToString(tc, showZeroHours);
 }
 
 CString DVDtimeToString(const DVD_HMSF_TIMECODE& rtVal, bool bAlwaysShowHours)

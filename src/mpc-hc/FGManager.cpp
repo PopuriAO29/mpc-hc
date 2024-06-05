@@ -66,6 +66,7 @@ CFGManager::CFGManager(LPCTSTR pName, LPUNKNOWN pUnk, HWND hWnd, bool IsPreview)
     , m_transform()
     , m_override()
     , m_deadends()
+    , m_aborted(false)
 {
     m_pUnkInner.CoCreateInstance(CLSID_FilterGraph, GetOwner());
     m_pFM.CoCreateInstance(CLSID_FilterMapper2);
@@ -607,6 +608,10 @@ HRESULT CFGManager::Connect(IPin* pPinOut, IPin* pPinIn, bool bContinueRender)
 
     CheckPointer(pPinOut, E_POINTER);
 
+    if (m_aborted) {
+        return VFW_E_CANNOT_RENDER;
+    }
+
     HRESULT hr;
 
     if (S_OK != IsPinDirection(pPinOut, PINDIR_OUTPUT)
@@ -774,6 +779,10 @@ HRESULT CFGManager::Connect(IPin* pPinOut, IPin* pPinIn, bool bContinueRender)
 
         pos = fl.GetHeadPosition();
         while (pos) {
+            if (m_aborted) {
+                return VFW_E_CANNOT_RENDER;
+            }
+
             CFGFilter* pFGF = fl.GetNext(pos);
 
             // avoid pointless connection attempts
@@ -927,6 +936,10 @@ HRESULT CFGManager::Connect(IPin* pPinOut, IPin* pPinIn, bool bContinueRender)
 
                     if (CComQIPtr<IVMRMixerBitmap9> pMB = pBF) {
                         m_pUnks.AddTail(pMB);
+                    }
+
+                    if (CComQIPtr<IMFVideoMixerBitmap> pMFVMB = pBF) {
+                        m_pUnks.AddTail(pMFVMB);
                     }
 
                     if (CComQIPtr<IMFGetService, &__uuidof(IMFGetService)> pMFGS = pBF) {
@@ -1107,6 +1120,8 @@ STDMETHODIMP CFGManager::Abort()
     // FIXME: this can hang
     //CAutoLock cAutoLock(this);
 
+    m_aborted = true;
+
     return CComQIPtr<IFilterGraph2>(m_pUnkInner)->Abort();
 }
 
@@ -1222,6 +1237,10 @@ STDMETHODIMP CFGManager::ConnectFilter(IBaseFilter* pBF, IPin* pPinIn)
     CAutoLock cAutoLock(this);
 
     CheckPointer(pBF, E_POINTER);
+
+    if (m_aborted) {
+        return VFW_E_CANNOT_RENDER;
+    }
 
     if (pPinIn && S_OK != IsPinDirection(pPinIn, PINDIR_INPUT)) {
         return VFW_E_INVALID_DIRECTION;
@@ -2736,7 +2755,11 @@ CFGManagerPlayer::CFGManagerPlayer(LPCTSTR pName, LPUNKNOWN pUnk, HWND hWnd, boo
                 m_transform.AddTail(DEBUG_NEW CFGFilterVideoRenderer(m_hWnd, CLSID_SyncAllocatorPresenter, StrRes(IDS_PPAGE_OUTPUT_SYNC), renderer_merit));
                 break;
             case VIDRNDT_DS_MPCVR:
-                m_transform.AddTail(DEBUG_NEW CFGFilterVideoRenderer(m_hWnd, CLSID_MPCVRAllocatorPresenter, StrRes(IDS_PPAGE_OUTPUT_MPCVR), renderer_merit));
+                if (!m_bIsCapture) {
+                    m_transform.AddTail(DEBUG_NEW CFGFilterVideoRenderer(m_hWnd, CLSID_MPCVRAllocatorPresenter, StrRes(IDS_PPAGE_OUTPUT_MPCVR), renderer_merit));
+                } else {
+                    m_transform.AddTail(DEBUG_NEW CFGFilterVideoRenderer(m_hWnd, CLSID_EnhancedVideoRenderer, StrRes(IDS_PPAGE_OUTPUT_EVR), renderer_merit));
+                }
                 break;
             case VIDRNDT_DS_NULL_COMP:
                 pFGF = DEBUG_NEW CFGFilterInternal<CNullVideoRenderer>(StrRes(IDS_PPAGE_OUTPUT_NULL_COMP), MERIT64_ABOVE_DSHOW + 2);
