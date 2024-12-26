@@ -27,6 +27,7 @@
 #include "PPageFileMediaInfo.h"
 #include "WinAPIUtils.h"
 #include "../DeCSS/VobFile.h"
+#include "PathUtils.h"
 
 #include "MediaInfo/MediaInfoDLL.h"
 using namespace MediaInfoDLL;
@@ -92,6 +93,10 @@ CPPageFileMediaInfo::CPPageFileMediaInfo(CString path, IFileSourceFilter* pFSF, 
     m_futureMIText = std::async(m_bSyncAnalysis ? std::launch::deferred : std::launch::async, [ = ]() {
         MediaInfoDLL::String filename = m_path;
         MediaInfo MI;
+        if (!MI.IsReady()) {
+            CString error = L"MediaInfo loading failed";
+            return error;
+        }
         // If we do a synchronous analysis on an optical drive, we pause the video during
         // the analysis to avoid concurrent accesses to the drive. Note that due to the
         // synchronous nature of the analysis, we are sure that the graph state will not
@@ -271,12 +276,9 @@ bool CPPageFileMediaInfo::HasMediaInfo()
 
 void CPPageFileMediaInfo::OnSaveAs()
 {
-    CString fn = m_fn;
-
-    fn.TrimRight(_T('/'));
-    int i = std::max(fn.ReverseFind(_T('\\')), fn.ReverseFind(_T('/')));
-    if (i >= 0 && i < fn.GetLength() - 1) {
-        fn = fn.Mid(i + 1);
+    CStringW fn = m_fn;
+    if (PathUtils::IsURL(fn)) {
+        fn = L"online_stream";
     }
     fn.Append(_T(".MediaInfo.txt"));
 

@@ -343,9 +343,6 @@
     <ClCompile Include="SubtitlesProvidersUtils.cpp">
       <Filter>Subtitles</Filter>
     </ClCompile>
-    <ClCompile Include="SubtitleUpDlg.cpp">
-      <Filter>Subtitles</Filter>
-    </ClCompile>
     <ClCompile Include="SubtitleDlDlg.cpp">
       <Filter>Subtitles</Filter>
     </ClCompile>
@@ -618,6 +615,12 @@
     <ClCompile Include="WicUtils.cpp">
       <Filter>Helpers</Filter>
     </ClCompile>
+    <ClCompile Include="PPageMouse.cpp">
+      <Filter>Property Dialogs\Player Options\Pages</Filter>
+    </ClCompile>
+    <ClCompile Include="AddCommandDlg.cpp">
+      <Filter>Modal Dialogs</Filter>
+    </ClCompile>
     <ClCompile Include="MPCFolderPickerDialog.cpp">
       <Filter>Modal Dialogs</Filter>
     </ClCompile>
@@ -882,9 +885,6 @@
       <Filter>Subtitles</Filter>
     </ClInclude>
     <ClInclude Include="SubtitlesProvidersUtils.h">
-      <Filter>Subtitles</Filter>
-    </ClInclude>
-    <ClInclude Include="SubtitleUpDlg.h">
       <Filter>Subtitles</Filter>
     </ClInclude>
     <ClInclude Include="SubtitleDlDlg.h">
@@ -1175,6 +1175,12 @@
     </ClInclude>
     <ClInclude Include="WicUtils.h">
       <Filter>Helpers</Filter>
+    </ClInclude>
+    <ClInclude Include="PPageMouse.h">
+      <Filter>Property Dialogs\Player Options\Pages</Filter>
+    </ClInclude>
+    <ClInclude Include="AddCommandDlg.h">
+      <Filter>Modal Dialogs</Filter>
     </ClInclude>
     <ClInclude Include="MPCFolderPickerDialog.h">
       <Filter>Modal Dialogs</Filter>

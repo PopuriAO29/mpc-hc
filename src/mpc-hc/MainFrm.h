@@ -41,7 +41,6 @@
 #include "PlayerPreView.h"
 #include "PlayerToolBar.h"
 #include "SubtitleDlDlg.h"
-#include "SubtitleUpDlg.h"
 #include "TimerWrappers.h"
 #include "OSD.h"
 #include "CMPCThemeMenu.h"
@@ -53,6 +52,7 @@
 #include "../filters/transform/VSFilter/IDirectVobSub.h"
 #include "MediaTransControls.h"
 #include "FavoriteOrganizeDlg.h"
+#include "AllocatorCommon.h"
 
 class CDebugShadersDlg;
 class CFullscreenWnd;
@@ -110,6 +110,8 @@ public:
     REFERENCE_TIME rtStart;
     ABRepeat abRepeat;
     bool bAddToRecent;
+    CString useragent;
+    CString referrer;
 };
 
 class OpenDVDData : public OpenMediaData
@@ -286,6 +288,7 @@ private:
     CComPtr<IVMRMixerControl9> m_pVMRMC;
     CComPtr<IMFVideoDisplayControl> m_pMFVDC;
     CComPtr<IMFVideoProcessor> m_pMFVP;
+    CComPtr<IVMRMixerBitmap9>    m_pVMB;
     CComPtr<IMFVideoMixerBitmap>    m_pMFVMB;
     CComPtr<IVMRWindowlessControl9> m_pVMRWC;
 
@@ -298,6 +301,9 @@ private:
     CComPtr<IMadVRCommand> m_pMVRC;
     CComPtr<IMadVRInfo> m_pMVRI;
     CComPtr<IMadVRFrameGrabber> m_pMVRFG;
+    CComPtr<IMadVRTextOsd> m_pMVTO;
+
+    CComPtr<ID3DFullscreenControl> m_pD3DFSC;
 
     CComQIPtr<IDvdControl2> m_pDVDC;
     CComQIPtr<IDvdInfo2> m_pDVDI;
@@ -362,10 +368,10 @@ private:
     void RestoreDefaultWindowRect();
     CRect GetInvisibleBorderSize() const;
     CSize GetVideoOrArtSize(MINMAXINFO& mmi);
-    CSize GetZoomWindowSize(double dScale);
+    CSize GetZoomWindowSize(double dScale, bool ignore_video_size = false);
     bool GetWorkAreaRect(CRect& work);
     CRect GetZoomWindowRect(const CSize& size, bool ignoreSavedPosition = false);
-    void ZoomVideoWindow(double dScale = ZOOM_DEFAULT_LEVEL);
+    void ZoomVideoWindow(double dScale = ZOOM_DEFAULT_LEVEL, bool ignore_video_size = false);
     double GetZoomAutoFitScale();
 
     bool alwaysOnTopZOrderInitialized = false;
@@ -390,6 +396,7 @@ private:
     void OnNavStreamSelectSubMenu(UINT id, DWORD dwSelGroup);
     void OnStreamSelect(bool forward, DWORD dwSelGroup);
     static CString GetStreamOSDString(CString name, LCID lcid, DWORD dwSelGroup);
+
     void CreateOSDBar();
     bool OSDBarSetPos();
     void DestroyOSDBar();
@@ -452,6 +459,8 @@ private:
     bool m_fLiveWM;
 
     bool delayingFullScreen;
+
+    bool m_bIsMPCVRExclusiveMode = false;
 
     void SendStatusMessage(CString msg, int nTimeOut);
     CString m_tempstatus_msg, m_closingmsg;
@@ -520,6 +529,9 @@ public:
     int GetVolume() {
         return m_wndToolBar.m_volctrl.GetPos();
     }
+    double GetPlayingRate() const {
+        return m_dSpeedRate;
+    }
 
 public:
     CMainFrame();
@@ -528,9 +540,9 @@ public:
     // Attributes
 public:
     bool m_fFullScreen;
-    bool m_fFirstFSAfterLaunchOnFS;
+    bool m_bNeedZoomAfterFullscreenExit;
     bool m_fStartInD3DFullscreen;
-    bool m_fStartInFullscreen;
+    bool m_fStartInFullscreenSeparate;
     bool m_bFullScreenWindowIsD3D;
     bool m_bFullScreenWindowIsOnSeparateDisplay;
 
@@ -544,6 +556,8 @@ public:
     bool IsInteractiveVideo() const;
     bool IsFullScreenMode() const;
     bool IsFullScreenMainFrame() const;
+    bool IsFullScreenMainFrameExclusiveMPCVR() const;
+    bool IsFullScreenSeparate() const;
     bool HasDedicatedFSVideoWindow() const;
     bool IsD3DFullScreenMode() const;
     bool IsSubresyncBarVisible() const;
@@ -564,6 +578,7 @@ protected:
 
     DVD_DOMAIN  m_iDVDDomain;
     DWORD       m_iDVDTitle;
+    bool        m_bDVDStillOn;
     int         m_loadedAudioTrackIndex = -1;
     int         m_loadedSubtitleTrackIndex = -1;
     int         m_audioTrackCount = 0;
@@ -572,6 +587,8 @@ protected:
     double m_ZoomX, m_ZoomY, m_PosX, m_PosY;
     int m_AngleX, m_AngleY, m_AngleZ;
     int m_iDefRotation;
+
+    void ForceCloseProcess();
 
     // Operations
     bool OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD);
@@ -595,6 +612,7 @@ protected:
     void OpenSetupInfoBar(bool bClear = true);
     void UpdateChapterInInfoBar();
     void OpenSetupStatsBar();
+    void CheckSelectedAudioStream();
     void OpenSetupStatusBar();
     void OpenSetupCaptureBar();
     void OpenSetupWindowTitle(bool reset = false);
@@ -624,8 +642,6 @@ protected:
 protected:
     friend class CSubtitleDlDlg;
     CSubtitleDlDlg m_wndSubtitlesDownloadDialog;
-    //friend class CSubtitleUpDlg;
-    //CSubtitleUpDlg m_wndSubtitlesUploadDialog;
     CFavoriteOrganizeDlg m_wndFavoriteOrganizeDialog;
     friend class CPPageSubMisc;
 
@@ -644,7 +660,7 @@ public:
     bool ResetDevice();
     bool DisplayChange();
     void CloseMediaBeforeOpen();
-    void CloseMedia(bool bNextIsQueued = false);
+    void CloseMedia(bool bNextIsQueued = false, bool bPendingFileDelete = false);
     void StartTunerScan(CAutoPtr<TunerScanData> pTSD);
     void StopTunerScan();
     HRESULT SetChannel(int nChannel);
@@ -672,6 +688,7 @@ public:
     bool MediaControlRun(bool waitforcompletion = false);
     bool MediaControlPause(bool waitforcompletion = false);
     bool MediaControlStop(bool waitforcompletion = false);
+    bool MediaControlStopPreview();
 
     REFERENCE_TIME GetPos() const;
     REFERENCE_TIME GetDur() const;
@@ -873,6 +890,8 @@ public:
 
     afx_msg void OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar);
 
+    void RestoreFocus();
+
     afx_msg void OnInitMenu(CMenu* pMenu);
     afx_msg void OnInitMenuPopup(CMenu* pPopupMenu, UINT nIndex, BOOL bSysMenu);
     afx_msg void OnUnInitMenuPopup(CMenu* pPopupMenu, UINT nFlags);
@@ -909,6 +928,7 @@ public:
     // menu item handlers
 
     INT_PTR DoFileDialogWithLastFolder(CFileDialog& fd, CStringW& lastPath);
+    void OpenDVDOrBD(CStringW path);
 
     afx_msg void OnFileOpenQuick();
     afx_msg void OnFileOpenmedia();
@@ -924,6 +944,7 @@ public:
     afx_msg void OnFileSaveImage();
     afx_msg void OnFileSaveImageAuto();
     afx_msg void OnUpdateFileSaveImage(CCmdUI* pCmdUI);
+    afx_msg void OnCmdLineSaveThumbnails();
     afx_msg void OnFileSaveThumbnails();
     afx_msg void OnUpdateFileSaveThumbnails(CCmdUI* pCmdUI);
     afx_msg void OnFileSubtitlesLoad();
@@ -1093,6 +1114,7 @@ public:
     afx_msg void OnApiPlay();
     afx_msg void OnApiPause();
     afx_msg void OnPlayStop();
+            void OnPlayStop(bool is_closing);
     afx_msg void OnUpdatePlayPauseStop(CCmdUI* pCmdUI);
     afx_msg void OnPlayFramestep(UINT nID);
     afx_msg void OnUpdatePlayFramestep(CCmdUI* pCmdUI);
@@ -1171,9 +1193,11 @@ public:
     afx_msg void OnHelpDonate();
 
     afx_msg void OnClose();
+
     bool FilterSettingsByClassID(CLSID clsid, CWnd* parent);
     void FilterSettings(CComPtr<IUnknown> pUnk, CWnd* parent);
 
+    LRESULT OnMPCVRSwitchFullscreen(WPARAM wParam, LPARAM lParam);
 
     CMPC_Lcd m_Lcd;
 
@@ -1340,9 +1364,12 @@ public:
     // TODO: refactor it outside of MainFrm
     GUID GetTimeFormat();
 
-    CAtlList<CHdmvClipInfo::PlaylistItem> m_MPLSPlaylist;
+    CHdmvClipInfo::HdmvPlaylist m_MPLSPlaylist;
     bool m_bIsBDPlay;
     bool OpenBD(CString Path);
+    bool m_bHasBDMeta;
+    CAtlList<CHdmvClipInfo::BDMVMeta> m_BDMeta;
+    CHdmvClipInfo::BDMVMeta GetBDMVMeta();
 
     bool GetDecoderType(CString& type) const;
 
@@ -1365,7 +1392,6 @@ public:
 
 private:
     bool watchingFileDialog;
-    HWND fileDialogHandle;
     CMPCThemeUtil* fileDialogHookHelper;
 public:
     afx_msg void OnSettingChange(UINT uFlags, LPCTSTR lpszSection);

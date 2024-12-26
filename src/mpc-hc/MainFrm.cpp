@@ -22,6 +22,7 @@
 #include "stdafx.h"
 #include "MainFrm.h"
 #include "mplayerc.h"
+#include "version.h"
 
 #include "GraphThread.h"
 #include "FGFilterLAV.h"
@@ -119,8 +120,8 @@
 // IID_IAMLine21Decoder
 DECLARE_INTERFACE_IID_(IAMLine21Decoder_2, IAMLine21Decoder, "6E8D4A21-310C-11d0-B79A-00AA003767A7") {};
 
-#define MIN_LOGO_WIDTH 304
-#define MIN_LOGO_HEIGHT 171
+#define MIN_LOGO_WIDTH 400
+#define MIN_LOGO_HEIGHT 150
 
 #define PREV_CHAP_THRESHOLD 2
 
@@ -252,6 +253,8 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_WM_CLOSE()
     ON_WM_MEASUREITEM()
 
+    ON_MESSAGE(WM_MPCVR_SWITCH_FULLSCREEN, OnMPCVRSwitchFullscreen)
+
     ON_REGISTERED_MESSAGE(s_uTaskbarRestart, OnTaskBarRestart)
     ON_REGISTERED_MESSAGE(WM_NOTIFYICON, OnNotifyIcon)
 
@@ -339,6 +342,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_UPDATE_COMMAND_UI(ID_FILE_SAVE_IMAGE, OnUpdateFileSaveImage)
     ON_COMMAND(ID_FILE_SAVE_IMAGE_AUTO, OnFileSaveImageAuto)
     ON_UPDATE_COMMAND_UI(ID_FILE_SAVE_IMAGE_AUTO, OnUpdateFileSaveImage)
+    ON_COMMAND(ID_CMDLINE_SAVE_THUMBNAILS, OnCmdLineSaveThumbnails)
     ON_COMMAND(ID_FILE_SAVE_THUMBNAILS, OnFileSaveThumbnails)
     ON_UPDATE_COMMAND_UI(ID_FILE_SAVE_THUMBNAILS, OnUpdateFileSaveThumbnails)
     ON_COMMAND(ID_FILE_SUBTITLES_LOAD, OnFileSubtitlesLoad)
@@ -553,7 +557,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_COMMAND_RANGE(ID_SHADERS_PRESETS_START, ID_SHADERS_PRESETS_END, OnPlayShadersPresets)
     ON_COMMAND_RANGE(ID_AUDIO_SUBITEM_START, ID_AUDIO_SUBITEM_END, OnPlayAudio)
     ON_COMMAND_RANGE(ID_SUBTITLES_SUBITEM_START, ID_SUBTITLES_SUBITEM_END, OnPlaySubtitles)
-    ON_COMMAND(ID_SUBTITLES_DEFAULT_STYLE, OnSubtitlesDefaultStyle)
+    ON_COMMAND(ID_SUBTITLES_OVERRIDE_DEFAULT_STYLE, OnSubtitlesDefaultStyle)
     ON_COMMAND_RANGE(ID_VIDEO_STREAMS_SUBITEM_START, ID_VIDEO_STREAMS_SUBITEM_END, OnPlayVideoStreams)
     ON_COMMAND_RANGE(ID_FILTERSTREAMS_SUBITEM_START, ID_FILTERSTREAMS_SUBITEM_END, OnPlayFiltersStreams)
     ON_COMMAND_RANGE(ID_VOLUME_UP, ID_VOLUME_MUTE, OnPlayVolume)
@@ -830,9 +834,9 @@ CMainFrame::CMainFrame()
     , m_fFullScreen(false)
     , m_bFullScreenWindowIsD3D(false)
     , m_bFullScreenWindowIsOnSeparateDisplay(false)
-    , m_fFirstFSAfterLaunchOnFS(false)
+    , m_bNeedZoomAfterFullscreenExit(false)
     , m_fStartInD3DFullscreen(false)
-    , m_fStartInFullscreen(false)
+    , m_fStartInFullscreenSeparate(false)
     , m_pLastBar(nullptr)
     , m_bFirstPlay(false)
     , m_bOpeningInAutochangedMonitorMode(false)
@@ -840,6 +844,7 @@ CMainFrame::CMainFrame()
     , m_fAudioOnly(true)
     , m_iDVDDomain(DVD_DOMAIN_Stop)
     , m_iDVDTitle(0)
+    , m_bDVDStillOn(false)
     , m_dSpeedRate(1.0)
     , m_ZoomX(1.0)
     , m_ZoomY(1.0)
@@ -891,6 +896,7 @@ CMainFrame::CMainFrame()
     , m_dLastVideoScaleFactor(0)
     , m_bExtOnTop(false)
     , m_bIsBDPlay(false)
+    , m_bHasBDMeta(false)
     , watchingFileDialog(false)
     , fileDialogHookHelper(nullptr)
     , delayingFullScreen(false)
@@ -1386,7 +1392,7 @@ BOOL CMainFrame::PreTranslateMessage(MSG* pMsg)
 {
     if (pMsg->message == WM_KEYDOWN) {
         if (pMsg->wParam == VK_ESCAPE) {
-            bool fEscapeNotAssigned = !AssignedToCmd(VK_ESCAPE, false);
+            bool fEscapeNotAssigned = !AssignedToCmd(VK_ESCAPE);
 
             if (fEscapeNotAssigned) {
                 if (IsFullScreenMode()) {
@@ -1602,7 +1608,7 @@ void CMainFrame::OnMove(int x, int y)
 
     WINDOWPLACEMENT wp;
     GetWindowPlacement(&wp);
-    if (!m_fFirstFSAfterLaunchOnFS && !m_fFullScreen && IsWindowVisible() && wp.flags != WPF_RESTORETOMAXIMIZED && wp.showCmd != SW_SHOWMINIMIZED) {
+    if (!m_bNeedZoomAfterFullscreenExit && !m_fFullScreen && IsWindowVisible() && wp.flags != WPF_RESTORETOMAXIMIZED && wp.showCmd != SW_SHOWMINIMIZED) {
         GetWindowRect(AfxGetAppSettings().rcLastWindowPos);
     }
 
@@ -1683,7 +1689,7 @@ void CMainFrame::OnSize(UINT nType, int cx, int cy)
         ShowWindow(SW_HIDE);
     } else {
         __super::OnSize(nType, cx, cy);
-        if (!m_fFirstFSAfterLaunchOnFS && IsWindowVisible() && !m_fFullScreen) {
+        if (!m_bNeedZoomAfterFullscreenExit && IsWindowVisible() && !m_fFullScreen) {
             CAppSettings& s = AfxGetAppSettings();
             if (nType != SIZE_MAXIMIZED && nType != SIZE_MINIMIZED) {
                 GetWindowRect(s.rcLastWindowPos);
@@ -1714,7 +1720,7 @@ void CMainFrame::OnSizingFixWndToVideo(UINT nSide, LPRECT lpRect, bool bCtrl)
     const auto& s = AfxGetAppSettings();
 
     if (GetLoadState() != MLS::LOADED || s.iDefaultVideoSize == DVS_STRETCH ||
-        bCtrl == s.fLimitWindowProportions || IsAeroSnapped()) {
+        bCtrl == s.fLimitWindowProportions || IsAeroSnapped() || (m_fAudioOnly && !m_wndView.IsCustomImgLoaded())) {
         return;
     }
 
@@ -1809,6 +1815,7 @@ void CMainFrame::OnSizingSnapToScreen(UINT nSide, LPRECT lpRect, bool bCtrl /*= 
     };
 
     CSize videoSize = GetVideoSize();
+
     if (bCtrl == s.fLimitWindowProportions || videoSize.cx == 0 || videoSize.cy == 0) {
         SnapTo(rect.left, areaRect.left, threshold.cx);
         SnapTo(rect.top, areaRect.top, threshold.cy);
@@ -2572,6 +2579,7 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                 if (s.iTitleBarTextStyle == 1 && s.fTitleBarTextTitle) {
                     OpenSetupWindowTitle();
                 }
+                MediaTransportControlSetMedia();
                 SendNowPlayingToSkype();
                 SendNowPlayingToApi(false);
             }
@@ -2587,8 +2595,6 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                     // prevent screensaver activate, monitor sleep/turn off after playback
                     SetThreadExecutionState(ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
                 }
-
-                UpdateDXVAStatus();
             }
         }
         break;
@@ -2919,12 +2925,16 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 str = CString((char*)evParam1);
             }
         }
-
         hr = m_pME->FreeEventParams(evCode, evParam1, evParam2);
 
         switch (evCode) {
             case EC_PAUSED:
-                UpdateCachedMediaState();
+                if (GetLoadState() == MLS::LOADED) {
+                    UpdateCachedMediaState();
+                }
+                if (m_audioTrackCount > 1 && GetLoadState() == MLS::LOADED) {
+                    CheckSelectedAudioStream();
+                }
                 break;
             case EC_COMPLETE:
                 UpdateCachedMediaState();
@@ -3249,7 +3259,6 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 }
                 break;
             case EC_BG_ERROR:
-                UpdateCachedMediaState();
                 if (m_fCustomGraph) {
                     SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
                     m_closingmsg = !str.IsEmpty() ? str : CString(_T("Unspecified graph error"));
@@ -3273,7 +3282,11 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 UpdateCachedMediaState();
                 break;
             case EC_DVD_STILL_ON:
+                m_bDVDStillOn = true;
+                break;
             case EC_DVD_STILL_OFF:
+                m_bDVDStillOn = false;
+                break;
             case EC_DVD_BUTTON_CHANGE:
             case EC_DVD_SUBPICTURE_STREAM_CHANGE:
             case EC_DVD_AUDIO_STREAM_CHANGE:
@@ -3367,9 +3380,17 @@ void CMainFrame::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
     __super::OnHScroll(nSBCode, nPos, pScrollBar);
 }
 
+void CMainFrame::RestoreFocus() {
+    CWnd* curFocus = GetFocus();
+    if (curFocus && curFocus != this) {
+        SetFocus();
+    }
+}
+
 void CMainFrame::OnInitMenu(CMenu* pMenu)
 {
     __super::OnInitMenu(pMenu);
+    RestoreFocus();
 
     const UINT uiMenuCount = pMenu->GetMenuItemCount();
     if (uiMenuCount == -1) {
@@ -3908,19 +3929,15 @@ void CMainFrame::OnUpdatePlayerStatus(CCmdUI* pCmdUI)
             }
             if (s.bShowABMarksInStatusbar) {
                 if (abRepeat) {
-                    msg.Append(_T("\u2001[A-B "));
-                    if(abRepeat.positionA) {
-                        CString timeMarkA = ReftimeToString2(abRepeat.positionA);
-                        msg.Append(timeMarkA.GetString());
+                    REFERENCE_TIME actualB = abRepeat.positionB;
+                    if (actualB == 0) {
+                        REFERENCE_TIME start = 0;
+                        m_wndSeekBar.GetRange(start, actualB);
                     }
-                    if(abRepeat.positionB) {
-                        if(abRepeat.positionA) {
-                            msg.AppendChar(_T(' '));
-                        }
-                        CString timeMarkB = ReftimeToString2(abRepeat.positionB);
-                        msg.AppendFormat(_T("> %s"), timeMarkB.GetString());
-                    }
-                    msg.Append(_T("]"));
+                    bool showhours = (actualB >= 35995000000) || (abRepeat.positionA >= 35995000000);
+                    CString timeMarkA = showhours ? ReftimeToString2(abRepeat.positionA) : ReftimeToString3(abRepeat.positionA);
+                    CString timeMarkB = showhours ? ReftimeToString2(actualB) : ReftimeToString3(actualB);
+                    msg.AppendFormat(_T("\u2001[A-B %s > %s]"), timeMarkA.GetString(), timeMarkB.GetString());
                 }
             }
         }
@@ -3960,7 +3977,7 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
         if (s.IsD3DFullscreen()) {
             m_fStartInD3DFullscreen = true;
         } else {
-            m_fStartInFullscreen = true;
+            m_fStartInFullscreenSeparate = true;
         }
     }
 
@@ -4066,13 +4083,17 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
         PerformFlipRotate();
     }
 
+    bool go_fullscreen = s.fLaunchfullscreen && !m_fAudioOnly && !IsFullScreenMode() && lastSkipDirection == 0 && !(s.nCLSwitches & CLSW_THUMBNAILS);
+
     // auto-zoom if requested
-    if (IsWindowVisible() && s.fRememberZoomLevel &&
-            !IsFullScreenMode() && !IsZoomed() && !IsIconic() && !IsAeroSnapped()) {
-        ZoomVideoWindow();
+    if (IsWindowVisible() && s.fRememberZoomLevel && !IsFullScreenMode() && !IsZoomed() && !IsIconic() && !IsAeroSnapped()) {
+        if (go_fullscreen) {
+            m_bNeedZoomAfterFullscreenExit = true;
+        }
+        ZoomVideoWindow(ZOOM_DEFAULT_LEVEL, go_fullscreen);
     }
 
-    if (s.fLaunchfullscreen && !m_fAudioOnly && !IsFullScreenMode() && lastSkipDirection == 0) {
+    if (go_fullscreen) {
         OnViewFullscreen();
     }
 
@@ -4086,11 +4107,21 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
     RecalcLayout();
     UpdateWindow();
 
-    MediaTransportControlSetMedia();
-
     // the window is repositioned and repainted, video renderer rect is ready to be set -
     // OnPlayPlay()/OnPlayPause() will take care of that
     m_bDelaySetOutputRect = false;
+
+    if (s.nCLSwitches & CLSW_THUMBNAILS) {
+        MoveVideoWindow(false, true);
+        MediaControlPause(true);
+        SendMessageW(WM_COMMAND, ID_CMDLINE_SAVE_THUMBNAILS);
+        m_bSettingUpMenus = false;
+        m_bRememberFilePos = false;
+        SendMessageW(WM_COMMAND, ID_FILE_EXIT);
+        return 0;
+    }
+
+    MediaTransportControlSetMedia();
 
     // start playback if requested
     m_bFirstPlay = true;
@@ -4098,7 +4129,7 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
     if (!(s.nCLSwitches & CLSW_OPEN) && (s.nLoops > 0)) {
         if (m_bOpeningInAutochangedMonitorMode && uModeChangeDelay) {
             m_timerOneTime.Subscribe(TimerOneTimeSubscriber::DELAY_PLAYPAUSE_AFTER_AUTOCHANGE_MODE,
-                                     std::bind(&CMainFrame::OnPlayPlay, this), uModeChangeDelay);
+                std::bind(&CMainFrame::OnPlayPlay, this), uModeChangeDelay);
         } else {
             OnPlayPlay();
         }
@@ -4106,12 +4137,12 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
         // OnUpdatePlayPauseStop() will decide if we can pause the media
         if (m_bOpeningInAutochangedMonitorMode && uModeChangeDelay) {
             m_timerOneTime.Subscribe(TimerOneTimeSubscriber::DELAY_PLAYPAUSE_AFTER_AUTOCHANGE_MODE,
-                                     [this] { OnCommand(ID_PLAY_PAUSE, 0); }, uModeChangeDelay);
+                [this] { OnCommand(ID_PLAY_PAUSE, 0); }, uModeChangeDelay);
         } else {
             OnCommand(ID_PLAY_PAUSE, 0);
         }
     }
-    s.nCLSwitches &= ~CLSW_OPEN;
+    s.nCLSwitches &= ~CLSW_OPEN;  
 
     // Ensure the dynamically added menu items are updated
     SetupFiltersSubMenu();
@@ -4317,7 +4348,7 @@ void CMainFrame::OnFilePostClosemedia(bool bNextIsQueued/* = false*/)
         if (IsD3DFullScreenMode()) {
             m_fStartInD3DFullscreen = true;
         } else {
-            m_fStartInFullscreen = true;
+            m_fStartInFullscreenSeparate = true;
         }
         if (!bNextIsQueued) {
             m_pDedicatedFSVideoWnd->DestroyWindow();
@@ -4683,6 +4714,36 @@ void CMainFrame::OnFileOpenmedia()
     }
 }
 
+LRESULT CMainFrame::OnMPCVRSwitchFullscreen(WPARAM wParam, LPARAM lParam)
+{
+    const auto& s = AfxGetAppSettings();
+    m_bIsMPCVRExclusiveMode = static_cast<bool>(wParam);
+
+    m_OSD.Stop();
+    if (m_bIsMPCVRExclusiveMode) {
+        TRACE(L"MPCVR exclusive full screen\n");
+        bool excl_mode_controls = IsFullScreenMainFrame();
+        if (excl_mode_controls && m_wndPlaylistBar.IsVisible()) {
+            m_wndPlaylistBar.SetHiddenDueToFullscreen(true);
+        }
+        if (s.fShowOSD || s.fShowDebugInfo) {
+            if (m_pVMB || m_pMFVMB) {
+                m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, excl_mode_controls);
+            }
+        }
+    } else {
+        if (s.fShowOSD || s.fShowDebugInfo) {
+            m_OSD.Start(m_pOSDWnd);
+            OSDBarSetPos();
+        }
+        if (m_wndPlaylistBar.IsHiddenDueToFullscreen()) {
+            m_wndPlaylistBar.SetHiddenDueToFullscreen(false);
+        }
+    }
+
+    return 0;
+}
+
 void CMainFrame::OnUpdateFileOpen(CCmdUI* pCmdUI)
 {
     pCmdUI->Enable(GetLoadState() != MLS::LOADING);
@@ -4962,6 +5023,20 @@ int CALLBACK BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lp, LPARAM pData)
     return 0;
 }
 
+void CMainFrame::OpenDVDOrBD(CStringW path) {
+    if (!path.IsEmpty()) {
+        AfxGetAppSettings().strDVDPath = path;
+        if (!OpenBD(path)) {
+            CAutoPtr<OpenDVDData> p(DEBUG_NEW OpenDVDData());
+            p->path = path;
+            p->path.Replace(_T('/'), _T('\\'));
+            p->path = ForceTrailingSlash(p->path);
+
+            OpenMedia(p);
+        }
+    }
+}
+
 void CMainFrame::OnFileOpendvd()
 {
     if ((GetLoadState() == MLS::LOADING) || IsD3DFullScreenMode()) {
@@ -4987,18 +5062,7 @@ void CMainFrame::OnFileOpendvd()
             return;
         }
     }
-
-    if (!path.IsEmpty()) {
-        s.strDVDPath = path;
-        if (!OpenBD(path)) {
-            CAutoPtr<OpenDVDData> p(DEBUG_NEW OpenDVDData());
-            p->path = path;
-            p->path.Replace(_T('/'), _T('\\'));
-            p->path = ForceTrailingSlash(p->path);
-
-            OpenMedia(p);
-        }
-    }
+    OpenDVDOrBD(path);
 }
 
 void CMainFrame::OnFileOpendevice()
@@ -5018,6 +5082,12 @@ void CMainFrame::OnFileOpendevice()
 
     m_wndPlaylistBar.Empty();
 
+    if (s.iDefaultCaptureDevice == 0 && s.strAnalogVideo == L"dummy" && s.strAnalogAudio == L"dummy") {
+        // device not configured yet, open settings
+        ShowOptions(IDD_PPAGECAPTURE);
+        return;
+    }
+
     CAutoPtr<OpenDeviceData> p(DEBUG_NEW OpenDeviceData());
     if (p) {
         p->DisplayName[0] = s.strAnalogVideo;
@@ -5034,7 +5104,8 @@ void CMainFrame::OnFileOpenOpticalDisk(UINT nID)
     for (TCHAR drive = _T('A'); drive <= _T('Z'); drive++) {
         CAtlList<CString> sl;
 
-        switch (GetOpticalDiskType(drive, sl)) {
+        OpticalDiskType_t discType = GetOpticalDiskType(drive, sl);
+        switch (discType) {
             case OpticalDisk_Audio:
             case OpticalDisk_VideoCD:
             case OpticalDisk_DVDVideo:
@@ -5046,16 +5117,19 @@ void CMainFrame::OnFileOpenOpticalDisk(UINT nID)
         }
 
         if (nID == 0) {
-            SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
-            SetForegroundWindow();
+            if (OpticalDisk_BD == discType || OpticalDisk_DVDVideo == discType) {
+                OpenDVDOrBD(CStringW(drive) + L":\\");
+            } else {
+                SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
+                SetForegroundWindow();
 
-            if (IsIconic()) {
-                ShowWindow(SW_RESTORE);
+                if (IsIconic()) {
+                    ShowWindow(SW_RESTORE);
+                }
+
+                m_wndPlaylistBar.Open(sl, true);
+                OpenCurPlaylistItem();
             }
-
-            m_wndPlaylistBar.Open(sl, true);
-            OpenCurPlaylistItem();
-
             break;
         }
     }
@@ -5064,8 +5138,13 @@ void CMainFrame::OnFileOpenOpticalDisk(UINT nID)
 void CMainFrame::OnFileRecycle()
 {
     // check if a file is playing
-    if (GetPlaybackMode() != PM_FILE) {
+    if (GetLoadState() != MLS::LOADED || GetPlaybackMode() != PM_FILE) {
         return;
+    }
+
+    OAFilterState fs = GetMediaState();
+    if (fs == State_Running) {
+        MediaControlPause(true);
     }
 
     m_wndPlaylistBar.DeleteFileInPlaylist(m_wndPlaylistBar.m_pl.GetPos());
@@ -5242,9 +5321,7 @@ void CMainFrame::OnDropFiles(CAtlList<CStringW>& slFiles, DROPEFFECT dropEffect)
 
     // load http url with youtube-dl, if available
     if (CanSendToYoutubeDL(slFiles.GetHead())) {
-        if (GetLoadState() == MLS::LOADED) {
-            CloseMedia(true);
-        }
+        CloseMediaBeforeOpen();
         if (ProcessYoutubeDLURL(slFiles.GetHead(), bAppend)) {
             if (!bAppend) {
                 OpenCurPlaylistItem();
@@ -5316,9 +5393,11 @@ void CMainFrame::OnFileSaveAs()
     }
 
     OAFilterState fs = State_Stopped;
-    m_pMC->GetState(0, &fs);
-    if (fs == State_Running) {
-        MediaControlPause(true);
+    if (m_pMC) {
+        m_pMC->GetState(0, &fs);
+        if (fs == State_Running) {
+            MediaControlPause(true);
+        }
     }
 
     CSaveDlg dlg(in, p);
@@ -5339,14 +5418,16 @@ bool CMainFrame::GetDIB(BYTE** ppData, long& size, bool fSilent)
     if (!ppData) {
         return false;
     }
+    if (GetLoadState() != MLS::LOADED || m_fAudioOnly) {
+        return false;
+    }
+    OAFilterState fs = GetMediaState();
+    if (fs != State_Paused && fs != State_Running) {
+        return false;
+    }
 
     *ppData = nullptr;
     size = 0;
-    OAFilterState fs = GetMediaState();
-
-    if (!(GetLoadState() == MLS::LOADED && !m_fAudioOnly && (fs == State_Paused || fs == State_Running))) {
-        return false;
-    }
 
     if (fs == State_Running && !m_pCAP) {
         MediaControlPause(true); // wait for completion
@@ -5443,6 +5524,7 @@ void CMainFrame::SaveDIB(LPCTSTR fn, BYTE* pData, long size)
         AfxMessageBox(IDS_SCREENSHOT_ERROR, MB_ICONWARNING | MB_OK, 0);
         return;
     }
+    bool topdown = (bih->biHeight < 0);
     int w = bih->biWidth;
     int h = abs(bih->biHeight);
     int srcpitch = w * (bpp >> 3);
@@ -5452,7 +5534,11 @@ void CMainFrame::SaveDIB(LPCTSTR fn, BYTE* pData, long size)
 
     const BYTE* src = pData + sizeof(*bih);
 
-    BitBltFromRGBToRGB(w, h, p, dstpitch, 24, (BYTE*)src + srcpitch * (h - 1), -srcpitch, bpp);
+    if (topdown) {
+        BitBltFromRGBToRGB(w, h, p, dstpitch, 24, (BYTE*)src, srcpitch, bpp);
+    } else {
+        BitBltFromRGBToRGB(w, h, p, dstpitch, 24, (BYTE*)src + srcpitch * (h - 1), -srcpitch, bpp);
+    }
 
     {
         Gdiplus::GdiplusStartupInput gdiplusStartupInput;
@@ -5806,7 +5892,6 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     bool bWasStopped = (filterState == State_Stopped);
     if (filterState != State_Paused) {
         OnPlayPause();
-        UpdateCachedMediaState(); // wait for completion of the pause command
     }
 
     CSize szVideoARCorrected, szVideo, szAR;
@@ -5845,8 +5930,10 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     int rows = std::clamp(s.iThumbRows, 1, 40);
 
     const int margin = 5;
-    const int infoheight = 70;
     int width = std::clamp(s.iThumbWidth, 256, 3840);
+    float fontscale = width / 1280.0;
+    int fontsize = fontscale * 16;
+    const int infoheight = 4 * fontsize + 6 + 2 * margin;
     int height = width * szVideoARCorrected.cy / szVideoARCorrected.cx * rows / cols + infoheight;
 
     int dibsize = sizeof(BITMAPINFOHEADER) + width * height * 4;
@@ -5973,22 +6060,27 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
 
         CRenderedTextSubtitle rts(&csSubLock);
         rts.m_SubRendererSettings.renderSSAUsingLibass = false;
+        rts.m_SubRendererSettings.overrideDefaultStyle = false;
+        rts.m_SubRendererSettings.overrideAllStyles = false;
         rts.CreateDefaultStyle(0);
         rts.m_storageRes = rts.m_playRes = CSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
+        style->fontName = L"Calibri";
         style->marginRect.SetRectEmpty();
         rts.AddStyle(_T("thumbs"), style);
 
         DVD_HMSF_TIMECODE hmsf = RT2HMS_r(rt);
         CStringW str;
-        str.Format(L"{\\an7\\1c&Hffffff&\\4a&Hb0&\\bord1\\shad4\\be1}{\\p1}m %d %d l %d %d %d %d %d %d{\\p}",
-                   r.left, r.top, r.right, r.top, r.right, r.bottom, r.left, r.bottom);
-        rts.Add(str, true, MS2RT(0), MS2RT(1), _T("thumbs")); // Thumbnail background
-        str.Format(L"{\\an3\\1c&Hffffff&\\3c&H000000&\\alpha&H80&\\fs16\\b1\\bord2\\shad0\\pos(%d,%d)}%02u:%02u:%02u",
-                   r.right - 5, r.bottom - 3, hmsf.bHours, hmsf.bMinutes, hmsf.bSeconds);
+        if (!darktheme) {
+            str.Format(L"{\\an7\\1c&Hffffff&\\4a&Hb0&\\bord1\\shad4\\be1}{\\p1}m %d %d l %d %d %d %d %d %d{\\p}",
+                r.left, r.top, r.right, r.top, r.right, r.bottom, r.left, r.bottom);
+            rts.Add(str, true, MS2RT(0), MS2RT(1), _T("thumbs")); // Thumbnail background
+        }
+        str.Format(L"{\\an3\\1c&Hffffff&\\3c&H000000&\\alpha&H80&\\fs%d\\b1\\bord2\\shad0\\pos(%d,%d)}%02u:%02u:%02u",
+                   fontsize, r.right - 5, r.bottom - 3, hmsf.bHours, hmsf.bMinutes, hmsf.bSeconds);
         rts.Add(str, true, MS2RT(1), MS2RT(2), _T("thumbs")); // Thumbnail time
 
-        rts.Render(spd, 0, 25, bbox); // Draw the thumbnail background
+        rts.Render(spd, 0, 25, bbox); // Draw the thumbnail background/time
 
         BYTE* pData = nullptr;
         long size = 0;
@@ -6040,6 +6132,8 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     {
         CRenderedTextSubtitle rts(&csSubLock);
         rts.m_SubRendererSettings.renderSSAUsingLibass = false;
+        rts.m_SubRendererSettings.overrideDefaultStyle = false;
+        rts.m_SubRendererSettings.overrideAllStyles = false;
         rts.CreateDefaultStyle(0);
         rts.m_storageRes = rts.m_playRes = CSize(width, height);
         STSStyle* style = DEBUG_NEW STSStyle();
@@ -6055,17 +6149,15 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
         rts.AddStyle(_T("thumbs"), style);
 
         CStringW str;
-        str.Format(L"{\\an9\\fs%d\\b1\\bord0\\shad0\\1c&Hffffff&}%s", infoheight - 10, L"MPC-HC");
+        str.Format(L"{\\an9\\fs%d\\b1\\bord0\\shad0\\1c&Hffffff&}%s", infoheight - 2 * margin, L"MPC-HC");
         if (darktheme) {
             str.Replace(L"\\1c&Hffffff", L"\\1c&Hc8c8c8");
         }
-
         rts.Add(str, true, 0, 1, _T("thumbs"), _T(""), _T(""), CRect(0, 0, 0, 0), -1);
 
         DVD_HMSF_TIMECODE hmsf = RT2HMS_r(rtDur);
 
         CString title;
-
         CPlaylistItem pli;
         if (m_wndPlaylistBar.GetCur(pli, true) && pli.m_bYoutubeDL && pli.m_label && !pli.m_label.IsEmpty()) {
             title = pli.m_label;
@@ -6100,7 +6192,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
         if (darktheme) {
             fmt.Replace(L"\\1c&H000000", L"\\1c&Hc8c8c8");
         }
-        str.Format(fmt,
+        str.Format(fmt, fontsize,
                    title.GetString(), fs.GetString(), szVideo.cx, szVideo.cy, ar.GetString(), hmsf.bHours, hmsf.bMinutes, hmsf.bSeconds);
         rts.Add(str, true, 0, 1, _T("thumbs"));
 
@@ -6318,6 +6410,34 @@ void CMainFrame::OnUpdateFileSaveImage(CCmdUI* pCmdUI)
 {
     OAFilterState fs = GetMediaState();
     pCmdUI->Enable(GetLoadState() == MLS::LOADED && !m_fAudioOnly && (fs == State_Paused || fs == State_Running));
+}
+
+void CMainFrame::OnCmdLineSaveThumbnails()
+{
+    CAppSettings& s = AfxGetAppSettings();
+
+    /* Check if a compatible renderer is being used */
+    if (!IsRendererCompatibleWithSaveImage()) {
+        return;
+    }
+
+    CPlaylistItem pli;
+    if (!m_wndPlaylistBar.GetCur(pli, true)) {
+        return;
+    }
+
+    CPath psrc(m_wndPlaylistBar.GetCurFileName(true));
+    psrc.RemoveFileSpec();
+    psrc.Combine(psrc, MakeSnapshotFileName(TRUE));
+
+    s.iThumbRows = std::clamp(s.iThumbRows, 1, 40);
+    s.iThumbCols = std::clamp(s.iThumbCols, 1, 16);
+    s.iThumbWidth = std::clamp(s.iThumbWidth, 256, 3840);
+
+    CString path = (LPCTSTR)psrc;
+
+    SaveThumbnails(path);
+
 }
 
 void CMainFrame::OnFileSaveThumbnails()
@@ -7852,7 +7972,7 @@ void CMainFrame::OnViewFullscreen()
 {
     const CAppSettings& s = AfxGetAppSettings();
 
-    if (IsD3DFullScreenMode() || (s.IsD3DFullscreen() && !m_fFullScreen && !m_fAudioOnly)) {
+    if (IsD3DFullScreenMode() || (s.IsD3DFullscreen() && !m_fFullScreen && !m_fAudioOnly && m_pD3DFSC && m_pMFVDC)) {
         ToggleD3DFullscreen(true);
     } else {
         ToggleFullscreen(true, true);
@@ -7863,7 +7983,7 @@ void CMainFrame::OnViewFullscreenSecondary()
 {
     const CAppSettings& s = AfxGetAppSettings();
 
-    if (IsD3DFullScreenMode() || (s.IsD3DFullscreen() && !m_fFullScreen && !m_fAudioOnly)) {
+    if (IsD3DFullScreenMode() || (s.IsD3DFullscreen() && !m_fFullScreen && !m_fAudioOnly && m_pD3DFSC && m_pMFVDC)) {
         ToggleD3DFullscreen(false);
     } else {
         ToggleFullscreen(true, false);
@@ -8663,9 +8783,15 @@ void CMainFrame::OnPlayPause()
     }
 
     if (GetLoadState() == MLS::LOADED) {
-        if (GetPlaybackMode() == PM_FILE
-                || GetPlaybackMode() == PM_DVD
-                || GetPlaybackMode() == PM_ANALOG_CAPTURE) {
+        if (GetPlaybackMode() == PM_FILE || GetPlaybackMode() == PM_DVD || GetPlaybackMode() == PM_ANALOG_CAPTURE) {
+            if (m_fFrameSteppingActive) {
+                m_pFS->CancelStep();
+                m_fFrameSteppingActive = false;
+                m_nStepForwardCount = 0;
+                if (m_pBA) {
+                    m_pBA->put_Volume(m_nVolumeBeforeFrameStepping);
+                }
+            }
             MediaControlPause(true);
         } else {
             ASSERT(FALSE);
@@ -8716,6 +8842,11 @@ void CMainFrame::OnApiPlay()
 
 void CMainFrame::OnPlayStop()
 {
+    OnPlayStop(false);
+}
+
+void CMainFrame::OnPlayStop(bool is_closing)
+{
     m_timerOneTime.Unsubscribe(TimerOneTimeSubscriber::DELAY_PLAYPAUSE_AFTER_AUTOCHANGE_MODE);
     m_bOpeningInAutochangedMonitorMode = false;
     m_bPausedForAutochangeMonitorMode = false;
@@ -8725,9 +8856,14 @@ void CMainFrame::OnPlayStop()
     m_wndSeekBar.SetPos(0);
     if (GetLoadState() == MLS::LOADED) {
         if (GetPlaybackMode() == PM_FILE) {
-            LONGLONG pos = 0;
-            m_pMS->SetPositions(&pos, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning);
-            MediaControlStop();
+            if (!is_closing) {
+                LONGLONG pos = 0;
+                m_pMS->SetPositions(&pos, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning);
+            }
+            MediaControlStop(true);
+            if (m_bUseSeekPreview) {
+                MediaControlStopPreview();
+            }
 
             if (m_pAMNS && m_pFSF) {
                 // After pause or stop the netshow url source filter won't continue
@@ -8741,21 +8877,21 @@ void CMainFrame::OnPlayStop()
             }
         } else if (GetPlaybackMode() == PM_DVD) {
             m_pDVDC->SetOption(DVD_ResetOnStop, TRUE);
-            MediaControlStop();
+            MediaControlStop(true);
             m_pDVDC->SetOption(DVD_ResetOnStop, FALSE);
 
             if (m_bUseSeekPreview && m_pDVDC_preview) {
                 m_pDVDC_preview->SetOption(DVD_ResetOnStop, TRUE);
-                m_pMC_preview->Stop();
+                MediaControlStopPreview();
                 m_pDVDC_preview->SetOption(DVD_ResetOnStop, FALSE);
             }
         } else if (GetPlaybackMode() == PM_DIGITAL_CAPTURE) {
-            MediaControlStop();
+            MediaControlStop(true);
             m_pDVBState->bActive = false;
             OpenSetupWindowTitle();
             m_wndStatusBar.SetStatusTimer(StrRes(IDS_CAPTURE_LIVE));
         } else if (GetPlaybackMode() == PM_ANALOG_CAPTURE) {
-            MediaControlStop();
+            MediaControlStop(true);
         }
 
         m_dSpeedRate = 1.0;
@@ -8770,7 +8906,7 @@ void CMainFrame::OnPlayStop()
         }
         m_nStepForwardCount = 0;
     } else if (GetLoadState() == MLS::CLOSING) {
-        MediaControlStop();
+        MediaControlStop(true);
     }
 
     m_nLoops = 0;
@@ -8778,7 +8914,7 @@ void CMainFrame::OnPlayStop()
     if (m_hWnd) {
         MoveVideoWindow();
 
-        if (GetLoadState() == MLS::LOADED) {
+        if (!is_closing && GetLoadState() == MLS::LOADED) {
             __int64 start, stop;
             m_wndSeekBar.GetRange(start, stop);
             if (!IsPlaybackCaptureMode()) {
@@ -8789,7 +8925,7 @@ void CMainFrame::OnPlayStop()
         }
     }
 
-    if (!m_fEndOfStream && GetLoadState() == MLS::LOADED) {
+    if (!is_closing && !m_fEndOfStream && GetLoadState() == MLS::LOADED) {
         CString strOSD(StrRes(ID_PLAY_STOP));
         int i = strOSD.Find(_T("\n"));
         if (i > 0) {
@@ -9431,36 +9567,31 @@ bool CMainFrame::FilterSettingsByClassID(CLSID clsid, CWnd* parent)
 void CMainFrame::FilterSettings(CComPtr<IUnknown> pUnk, CWnd* parent) {
     CComPropertySheet ps(IDS_PROPSHEET_PROPERTIES);
 
-    // Find out if we are opening the property page for an internal filter
     CComQIPtr<IBaseFilter> pBF = pUnk;
-    bool bIsInternalFilter = false;
+    CLSID clsid = GetCLSID(pBF);
     CFGFilterLAV::LAVFILTER_TYPE LAVFilterType = CFGFilterLAV::INVALID;
-    if (pBF) {
-        bIsInternalFilter = CFGFilterLAV::IsInternalInstance(pBF, &LAVFilterType);
-    }
+    bool bIsInternalLAV = CFGFilterLAV::IsInternalInstance(pBF, &LAVFilterType);
 
     if (CComQIPtr<ISpecifyPropertyPages> pSPP = pUnk) {
         ULONG uIgnoredPage = ULONG(-1);
         // If we are dealing with an internal filter, we want to ignore the "Formats" page.
-        if (bIsInternalFilter) {
+        if (bIsInternalLAV) {
             uIgnoredPage = (LAVFilterType != CFGFilterLAV::AUDIO_DECODER) ? 1 : 2;
         }
-        ps.AddPages(pSPP, uIgnoredPage);
+        bool bIsInternalFilter = bIsInternalLAV || clsid == CLSID_MPCVR;
+        ps.AddPages(pSPP, bIsInternalFilter, uIgnoredPage);
     }
 
-    if (pBF) {
-        HRESULT hr;
-        CComPtr<IPropertyPage> pPP = DEBUG_NEW CInternalPropertyPageTempl<CPinInfoWnd>(nullptr, &hr);
-        ps.AddPage(pPP, pBF);
-    }
+    HRESULT hr;
+    CComPtr<IPropertyPage> pPP = DEBUG_NEW CInternalPropertyPageTempl<CPinInfoWnd>(nullptr, &hr);
+    ps.AddPage(pPP, pBF);
 
-    if (pBF && ps.GetPageCount() > 0) {
-        CLSID clsid = GetCLSID(pBF);
+    if (ps.GetPageCount() > 0) {
         CMPCThemeComPropertyPage::SetDialogType(clsid);
         ps.DoModal();
         OpenSetupStatusBar();
 
-        if (bIsInternalFilter) {
+        if (bIsInternalLAV) {
             if (CComQIPtr<ILAVFSettings> pLAVFSettings = pBF) {
                 CFGFilterLAVSplitterBase::Settings settings;
                 if (settings.GetSettings(pLAVFSettings)) { // Get current settings from LAVSplitter
@@ -9656,7 +9787,7 @@ void CMainFrame::OnSubtitlesDefaultStyle()
 {
     CAppSettings& s = AfxGetAppSettings();
     if (!m_pSubStreams.IsEmpty()) {
-        s.fUseDefaultSubtitlesStyle = !s.fUseDefaultSubtitlesStyle;
+        s.bSubtitleOverrideDefaultStyle = !s.bSubtitleOverrideDefaultStyle;
         UpdateSubtitleRenderingParameters();
         RepaintVideo();
     }
@@ -9689,13 +9820,13 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
             SetSubtitle(i);
         }
     } else if (!m_pSubStreams.IsEmpty()) {
-        // Currently the subtitles menu contains 5 items apart from the actual subtitles list when the ISR is used
-        i -= 5;
+        // Currently the subtitles menu contains 6 items apart from the actual subtitles list when the ISR is used
+        i -= 6;
 
-        if (i == -5) {
+        if (i == -6) {
             // options
             ShowOptions(CPPageSubtitles::IDD);
-        } else if (i == -4) {
+        } else if (i == -5) {
             // styles
             int j = 0;
             SubtitleInput* pSubInput = GetSubtitleInput(j, true);
@@ -9714,7 +9845,7 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
                         STSStyle* style;
                         pRTS->m_styles.GetNextAssoc(pos, styleName, style);
 
-                        CAutoPtr<CPPageSubStyle> page(DEBUG_NEW CPPageSubStyle());
+                        CAutoPtr<CPPageSubStyle> page(DEBUG_NEW CPPageSubStyle(/*isStyleDialog = */ true));
                         if (style->hasAnsiStyleName) {
                             styleName = ToUnicode(styleName, pRTS->GetCharSet(style->charSet));
                         }
@@ -9731,33 +9862,48 @@ void CMainFrame::OnPlaySubtitles(UINT nID)
                     if (dlg.DoModal() == IDOK) {
                         {
                             CAutoLock cAutoLock(&m_csSubLock);
+                            bool defaultStyleChanged = false, otherStyleChanged = false;
 
                             for (size_t l = 0; l < pages.GetCount(); l++) {
+                                STSStyle tmpStyle = *styles[l];
                                 pages[l]->GetStyle(*styles[l]);
                                 if (pages[l]->GetStyleName() == L"Default") {
                                     if (*styles[l] != s.subtitlesDefStyle) {
                                         pRTS->m_bUsingPlayerDefaultStyle = false;
                                         pRTS->SetDefaultStyle(*styles[l]);
+                                        defaultStyleChanged = true;
                                     }
+                                } else if (tmpStyle != *styles[l]) {
+                                    otherStyleChanged = true;
                                 }
                             }
-                            pRTS->Deinit();
+                            if (otherStyleChanged || defaultStyleChanged) {
+                                if (!defaultStyleChanged) { //it will already have triggered SetStyleChanged() internally
+                                    pRTS->SetStyleChanged();
+                                }
+                                pRTS->Deinit();
+                                InvalidateSubtitle();
+                                RepaintVideo();
+                                m_wndSubresyncBar.ReloadSubtitle();
+                            }
                         }
-                        InvalidateSubtitle();
-                        RepaintVideo();
                     }
                 }
             }
-        } else if (i == -3) {
+        } else if (i == -4) {
             // reload
             ReloadSubtitle();
-        } else if (i == -2) {
-            // enable
+        } else if (i == -3) {
+            // hide
             ToggleSubtitleOnOff();
-        } else if (i == -1) {
+        } else if (i == -2) {
             // override default style
-            // TODO: default subtitles style toggle here
-            s.fUseDefaultSubtitlesStyle = !s.fUseDefaultSubtitlesStyle;
+            s.bSubtitleOverrideDefaultStyle = !s.bSubtitleOverrideDefaultStyle;
+            UpdateSubtitleRenderingParameters();
+            RepaintVideo();
+        } else if (i == -1) {
+            // override all styles
+            s.bSubtitleOverrideAllStyles = !s.bSubtitleOverrideAllStyles;
             UpdateSubtitleRenderingParameters();
             RepaintVideo();
         } else if (i >= 0) {
@@ -10521,11 +10667,9 @@ void CMainFrame::OnNavigateJumpTo(UINT nID)
     if (GetPlaybackMode() == PM_FILE) {
         int id = nID - ID_NAVIGATE_JUMPTO_SUBITEM_START;
 
-        if (id < (int)m_MPLSPlaylist.GetCount() && m_MPLSPlaylist.GetCount() > 1) {
-            POSITION pos = m_MPLSPlaylist.GetHeadPosition();
+        if (id < (int)m_MPLSPlaylist.size() && m_MPLSPlaylist.size() > 1) {
             int idx = 0;
-            while (pos) {
-                CHdmvClipInfo::PlaylistItem Item = m_MPLSPlaylist.GetNext(pos);
+            for (auto &Item : m_MPLSPlaylist) {
                 if (idx == id) {
                     m_bIsBDPlay = true;
                     m_wndPlaylistBar.Empty();
@@ -10539,8 +10683,8 @@ void CMainFrame::OnNavigateJumpTo(UINT nID)
             }
         }
 
-        if (m_MPLSPlaylist.GetCount() > 1) {
-            id -= (int)m_MPLSPlaylist.GetCount();
+        if (m_MPLSPlaylist.size() > 1) {
+            id -= (int)m_MPLSPlaylist.size();
         }
 
         if (m_pCB->ChapGetCount() > 1) {
@@ -11016,7 +11160,6 @@ void CMainFrame::OnRecentFile(UINT nID)
     CloseMediaBeforeOpen();
 
     if (fns.GetCount() == 1 && CanSendToYoutubeDL(r.fns.GetHead())) {
-        SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
         if (ProcessYoutubeDLURL(fns.GetHead(), false)) {
             OpenCurPlaylistItem();
             return;
@@ -11178,8 +11321,8 @@ void CMainFrame::SetDefaultWindowRect(int iMonitor)
         GetClientRect(&clientRect);
 
         CSize logoSize = m_wndView.GetLogoSize();
-        logoSize.cx = std::max<LONG>(logoSize.cx, s.nLogoId == IDF_LOGO0 ? 16 : m_dpi.ScaleX(MIN_LOGO_WIDTH));
-        logoSize.cy = std::max<LONG>(logoSize.cy, s.nLogoId == IDF_LOGO0 ? 16 : m_dpi.ScaleY(MIN_LOGO_HEIGHT));
+        logoSize.cx = std::max<LONG>(logoSize.cx, m_dpi.ScaleX(MIN_LOGO_WIDTH));
+        logoSize.cy = std::max<LONG>(logoSize.cy, m_dpi.ScaleY(MIN_LOGO_HEIGHT));
 
         unsigned uTop, uLeft, uRight, uBottom;
         m_controls.GetDockZones(uTop, uLeft, uRight, uBottom);
@@ -11216,43 +11359,52 @@ void CMainFrame::SetDefaultFullscreenState()
 {
     CAppSettings& s = AfxGetAppSettings();
 
-    if (!s.bFullscreenSeparateControls) {
-        bool clGoFullscreen = !(s.nCLSwitches & CLSW_ADD) && (s.nCLSwitches & CLSW_FULLSCREEN);
+    bool clGoFullscreen = !(s.nCLSwitches & (CLSW_ADD | CLSW_THUMBNAILS)) && (s.nCLSwitches & CLSW_FULLSCREEN);
 
-        if (clGoFullscreen && !s.slFiles.IsEmpty()) {
-            // ignore fullscreen if all files are audio
-            clGoFullscreen = false;
-            const CMediaFormats& mf = AfxGetAppSettings().m_Formats;
-            POSITION pos = s.slFiles.GetHeadPosition();
-            while (pos) {
-                CString fpath = s.slFiles.GetNext(pos);
-                CString ext = fpath.Mid(fpath.ReverseFind('.') + 1);
-                if (!mf.FindExt(ext, true)) {
-                    clGoFullscreen = true;
-                    break;
-                }
+    if (clGoFullscreen && !s.slFiles.IsEmpty()) {
+        // ignore fullscreen if all files are audio
+        clGoFullscreen = false;
+        const CMediaFormats& mf = AfxGetAppSettings().m_Formats;
+        POSITION pos = s.slFiles.GetHeadPosition();
+        while (pos) {
+            CString fpath = s.slFiles.GetNext(pos);
+            CString ext = fpath.Mid(fpath.ReverseFind('.') + 1);
+            if (!mf.FindExt(ext, true)) {
+                clGoFullscreen = true;
+                break;
             }
         }
+    }
 
-        if (clGoFullscreen) {
-            if (s.IsD3DFullscreen()) {
-                m_fStartInD3DFullscreen = true;
+    if (clGoFullscreen) {
+        if (s.IsD3DFullscreen()) {
+            m_fStartInD3DFullscreen = true;
+        } else {
+            bool launchingFullscreenSeparateControls = false;
+            if (s.bFullscreenSeparateControls) {
+                CMonitors monitors;
+                CMonitor currentMonitor = monitors.GetNearestMonitor(this);
+                CMonitor fullscreenMonitor = monitors.GetMonitor(s.strFullScreenMonitorID, s.strFullScreenMonitorDeviceName);
+                if (fullscreenMonitor.IsMonitor()) {
+                    launchingFullscreenSeparateControls = fullscreenMonitor != currentMonitor;
+                }                
             }
-            else {
+
+            if (launchingFullscreenSeparateControls) {
+                m_fStartInFullscreenSeparate = true;
+            } else {
                 ToggleFullscreen(true, true);
-                m_fFirstFSAfterLaunchOnFS = true;
+                m_bNeedZoomAfterFullscreenExit = true;
             }
-            s.nCLSwitches &= ~CLSW_FULLSCREEN;
         }
-        else if (s.fRememberWindowSize && s.fRememberWindowPos && !m_fFullScreen && s.fLastFullScreen) {
-            // Casimir666 : if fullscreen was on, put it on back
-            if (s.IsD3DFullscreen()) {
-                m_fStartInD3DFullscreen = true;
-            }
-            else {
-                ToggleFullscreen(true, true);
-                m_fFirstFSAfterLaunchOnFS = true;
-            }
+        s.nCLSwitches &= ~CLSW_FULLSCREEN;
+    } else if (s.fRememberWindowSize && s.fRememberWindowPos && !m_fFullScreen && s.fLastFullScreen) {
+        // Casimir666 : if fullscreen was on, put it on back
+        if (s.IsD3DFullscreen()) {
+            m_fStartInD3DFullscreen = true;
+        } else {
+            ToggleFullscreen(true, true);
+            m_bNeedZoomAfterFullscreenExit = true;
         }
     }
 }
@@ -11392,17 +11544,39 @@ bool CMainFrame::MediaControlStop(bool waitforcompletion)
 {
     m_dwLastPause = 0;
     if (m_pMC) {
-        m_CachedFilterState = State_Stopped;
-        MediaTransportControlUpdateState(State_Stopped);
-        if (FAILED(m_pMC->Stop())) {
-            ASSERT(FALSE);
-            m_CachedFilterState = -1;
-            return false;
+        m_pMC->GetState(0, &m_CachedFilterState);
+        if (m_CachedFilterState != State_Stopped) {
+            if (FAILED(m_pMC->Stop())) {
+                ASSERT(FALSE);
+                m_CachedFilterState = -1;
+                return false;
+            }
+            if (waitforcompletion) {
+                m_CachedFilterState = -1;
+                m_pMC->GetState(0, &m_CachedFilterState);
+                ASSERT(m_CachedFilterState == State_Stopped);
+            } else {
+                m_CachedFilterState = State_Stopped;
+            }
         }
-        if (waitforcompletion) {
-            m_CachedFilterState = -1;
-            m_pMC->GetState(0, &m_CachedFilterState);
-            ASSERT(m_CachedFilterState == State_Stopped);
+        MediaTransportControlUpdateState(State_Stopped);
+        return true;
+    }
+    return false;
+}
+
+bool CMainFrame::MediaControlStopPreview()
+{
+    if (m_pMC_preview) {
+        OAFilterState fs = -1;
+        m_pMC_preview->GetState(0, &fs);
+        if (fs != State_Stopped) {
+            if (FAILED(m_pMC_preview->Stop())) {
+                ASSERT(FALSE);
+                return false;
+            }
+            m_pMC_preview->GetState(0, &fs);
+            ASSERT(fs == State_Stopped);
         }
         return true;
     }
@@ -11463,6 +11637,9 @@ CSize CMainFrame::GetVideoSize() const
         if (pBV2 && SUCCEEDED(pBV2->GetPreferredAspectRatio(&arx, &ary)) && arx > 0 && ary > 0) {
             preferedAR.SetSize(arx, ary);
         }
+    }
+    if (preferedAR.cx <= 0 || preferedAR.cy <= 0) { //due to IBasicVideo2 not being found, this could still be zero for .swf
+        preferedAR.SetSize(videoSize.cx, videoSize.cy);
     }
 
     if (videoSize.cx <= 0 || videoSize.cy <= 0) {
@@ -11559,20 +11736,34 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
     if (!fullscreenMonitor.IsMonitor()) {
         fullscreenMonitor = currentMonitor;
     }
+    bool fullScreenSeparate = s.bFullscreenSeparateControls && (m_pMFVDC || m_pVMRWC || m_pVW) && fullscreenMonitor.IsMonitor() && fullscreenMonitor != currentMonitor && (s.nCS & (CS_SEEKBAR | CS_TOOLBAR));   
 
     const CWnd* pInsertAfter = nullptr;
     CRect windowRect;
     DWORD dwRemove = 0, dwAdd = 0;
 
-    bool fullScreenSecondMonitor = s.bFullscreenSeparateControls && (m_pMFVDC || m_pVMRWC || m_pVW) && fullscreenMonitor.IsMonitor() && fullscreenMonitor != currentMonitor;
-
-    if (!fullScreenSecondMonitor && s.iFullscreenDelay > 0 && IsWindows8OrGreater()) {//DWMWA_CLOAK not supported on 7
+    if (!fullScreenSeparate && s.iFullscreenDelay > 0 && IsWindows8OrGreater()) {//DWMWA_CLOAK not supported on 7
         BOOL setEnabled = TRUE;
         ::DwmSetWindowAttribute(m_hWnd, DWMWA_CLOAK, &setEnabled, sizeof(setEnabled));
     }
 
-    if (fullScreenSecondMonitor) {
-        m_fFullScreen = !m_fFullScreen;
+    bool restart_osd = false;
+    if (!m_pMVTO) {
+        m_OSD.Stop();
+        restart_osd = s.fShowOSD || s.fShowDebugInfo;
+    }
+
+    if (fullScreenSeparate) {
+        if (m_fFullScreen) {
+            m_fFullScreen = false;
+        } else {
+            if (!m_bNeedZoomAfterFullscreenExit && !s.HasFixedWindowSize()) {
+                // adjust control window size to minimal
+                m_bNeedZoomAfterFullscreenExit = true;
+                ZoomVideoWindow(ZOOM_DEFAULT_LEVEL, true);
+            }
+            m_fFullScreen = true;
+        }
         s.fLastFullScreen = false; //not really, just fullScreenSecondMonitor
 
         if (m_fFullScreen) {
@@ -11584,26 +11775,36 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
             }
 
             CreateFullScreenWindow(false);
+            if (m_pD3DFSC && s.iDSVideoRendererType == VIDRNDT_DS_MPCVR) {
+                m_pD3DFSC->SetD3DFullscreen(true);
+            }
             // Assign the windowed video frame and pass it to the relevant classes.
             m_pVideoWnd = m_pDedicatedFSVideoWnd;
             if (m_pMFVDC) {
                 m_pMFVDC->SetVideoWindow(m_pVideoWnd->m_hWnd);
             } else if (m_pVMRWC) {
                 m_pVMRWC->SetVideoClippingWindow(m_pVideoWnd->m_hWnd);
-            } else if (m_pVW) {
+            }
+            if (m_pVW) {
                 m_pVW->put_Owner((OAHWND)m_pVideoWnd->m_hWnd);
+                m_pVW->put_MessageDrain((OAHWND)m_pVideoWnd->m_hWnd);
             }
             m_wndView.Invalidate();
         } else {
             m_eventc.FireEvent(MpcEvent::SWITCHING_FROM_FULLSCREEN);
 
+            if (m_pD3DFSC && s.iDSVideoRendererType == VIDRNDT_DS_MPCVR) {
+                m_pD3DFSC->SetD3DFullscreen(false);
+            }
             m_pVideoWnd = &m_wndView;
             if (m_pMFVDC) {
                 m_pMFVDC->SetVideoWindow(m_pVideoWnd->m_hWnd);
             } else if (m_pVMRWC) {
                 m_pVMRWC->SetVideoClippingWindow(m_pVideoWnd->m_hWnd);
-            } else if (m_pVW) {
+            }
+            if (m_pVW) {
                 m_pVW->put_Owner((OAHWND)m_pVideoWnd->m_hWnd);
+                m_pVW->put_MessageDrain((OAHWND)m_pVideoWnd->m_hWnd);
             }
             if (s.autoChangeFSMode.bEnabled && s.autoChangeFSMode.bApplyDefaultModeAtFSExit && !s.autoChangeFSMode.modes.empty() && s.autoChangeFSMode.modes[0].bChecked) {
                 SetDispMode(s.strFullScreenMonitorID, s.autoChangeFSMode.modes[0].dm, s.fAudioTimeShift ? s.iAudioTimeShift : 0); // Restore default time shift
@@ -11611,16 +11812,23 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
 
             // Destroy the Fullscreen window and zoom the windowed video frame
             m_pDedicatedFSVideoWnd->DestroyWindow();
-            if (m_fFirstFSAfterLaunchOnFS) {
-                m_fFirstFSAfterLaunchOnFS = false;
+            if (m_bNeedZoomAfterFullscreenExit) {
+                m_bNeedZoomAfterFullscreenExit = false;
                 if (s.fRememberZoomLevel) {
                     ZoomVideoWindow();
                 }
             }
         }
         MoveVideoWindow();
+
+        if (s.bHideWindowedControls) {
+            m_controls.UpdateToolbarsVisibility();
+        }
     } else {
-        if (!m_fFullScreen) {
+        m_fFullScreen = !m_fFullScreen;
+        s.fLastFullScreen = m_fFullScreen;
+
+        if (m_fFullScreen) {
             SetCursor(nullptr); // prevents cursor flickering when our window is not under the cursor
 
             m_eventc.FireEvent(MpcEvent::SWITCHING_TO_FULLSCREEN);
@@ -11655,8 +11863,10 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
                     m_pMFVDC->SetVideoWindow(m_pVideoWnd->m_hWnd);
                 } else if (m_pVMRWC) {
                     m_pVMRWC->SetVideoClippingWindow(m_pVideoWnd->m_hWnd);
-                } else if (m_pVW) {
+                }
+                if (m_pVW) {
                     m_pVW->put_Owner((OAHWND)m_pVideoWnd->m_hWnd);
+                    m_pVW->put_MessageDrain((OAHWND)m_pVideoWnd->m_hWnd);
                 }
             }
             m_pDedicatedFSVideoWnd->DestroyWindow();
@@ -11679,8 +11889,12 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
             }
 
             if (m_wndPlaylistBar.IsHiddenDueToFullscreen() && !m_controls.ControlChecked(CMainFrameControls::Panel::PLAYLIST)) {
-                m_wndPlaylistBar.SetHiddenDueToFullscreen(false);
-                m_controls.ToggleControl(CMainFrameControls::Panel::PLAYLIST);
+                if (s.bHideWindowedControls) {
+                    m_wndPlaylistBar.SetHiddenDueToFullscreen(false, true);
+                } else {
+                    m_wndPlaylistBar.SetHiddenDueToFullscreen(false);
+                    m_controls.ToggleControl(CMainFrameControls::Panel::PLAYLIST);
+                }
             }
 
             // If MPC-HC wasn't previously set "on top" by an external tool,
@@ -11691,17 +11905,10 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
         }
 
         bool bZoomVideoWindow = false;
-        if (m_fFirstFSAfterLaunchOnFS) {
-            ASSERT(m_fFullScreen);
+        if (m_bNeedZoomAfterFullscreenExit && !m_fFullScreen) {
             bZoomVideoWindow = s.fRememberZoomLevel;
-            m_fFirstFSAfterLaunchOnFS = false;
+            m_bNeedZoomAfterFullscreenExit = false;
         }
-
-        m_fFullScreen = !m_fFullScreen;
-        s.fLastFullScreen = m_fFullScreen;
-        // Temporarily hide the OSD message if there is one, it will
-        // be restored after. This avoid positioning problems.
-        m_OSD.HideMessage(true);
 
         ModifyStyle(dwRemove, dwAdd, SWP_NOZORDER);
         SetWindowPos(pInsertAfter, windowRect.left, windowRect.top, windowRect.Width(), windowRect.Height(),
@@ -11718,16 +11925,20 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
 
         UpdateControlState(UPDATE_CONTROLS_VISIBILITY);
 
-
         if (bZoomVideoWindow) {
             ZoomVideoWindow();
         }
-
         MoveVideoWindow();
-
-        m_OSD.HideMessage(false);
     }
 
+    if (restart_osd) {
+        if (m_fFullScreen && m_pCAP3 && m_pMFVMB) { // MPCVR
+            m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, false);
+        } else {
+            m_OSD.Start(m_pOSDWnd);
+            OSDBarSetPos();
+        }
+    }
 
     if (m_fFullScreen) {
         m_eventc.FireEvent(MpcEvent::SWITCHED_TO_FULLSCREEN);
@@ -11735,7 +11946,7 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
         m_eventc.FireEvent(MpcEvent::SWITCHED_FROM_FULLSCREEN);
     }
 
-    if (!fullScreenSecondMonitor && s.iFullscreenDelay > 0 && IsWindows8OrGreater()) {//DWMWA_CLOAK not supported on 7
+    if (!fullScreenSeparate && s.iFullscreenDelay > 0 && IsWindows8OrGreater()) {//DWMWA_CLOAK not supported on 7
         UINT_PTR timerID = 0;
         timerID = SetTimer(TIMER_WINDOW_FULLSCREEN, s.iFullscreenDelay, nullptr);
         if (0 == timerID) {
@@ -11750,25 +11961,18 @@ void CMainFrame::ToggleFullscreen(bool fToNearest, bool fSwitchScreenResWhenHasT
 
 void CMainFrame::ToggleD3DFullscreen(bool fSwitchScreenResWhenHasTo)
 {
-    CComQIPtr<ID3DFullscreenControl> pD3DFS;
-    if (m_pMFVDC) {
-        pD3DFS = m_pMFVDC;
-    } else {
-        ASSERT(false);
-    }
-
-    if (pD3DFS) {
+    if (m_pD3DFSC && m_pMFVDC) {
         CAppSettings& s = AfxGetAppSettings();
 
         bool bIsFullscreen = false;
-        pD3DFS->GetD3DFullscreen(&bIsFullscreen);
+        m_pD3DFSC->GetD3DFullscreen(&bIsFullscreen);
         s.fLastFullScreen = !bIsFullscreen;
 
         m_OSD.Stop();
 
         if (bIsFullscreen) {
             // Turn off D3D Fullscreen
-            pD3DFS->SetD3DFullscreen(false);
+            m_pD3DFSC->SetD3DFullscreen(false);
 
             // Assign the windowed video frame and pass it to the relevant classes.
             m_pVideoWnd = &m_wndView;
@@ -11780,11 +11984,11 @@ void CMainFrame::ToggleD3DFullscreen(bool fSwitchScreenResWhenHasTo)
 
             // Destroy the D3D Fullscreen window and zoom the windowed video frame
             m_pDedicatedFSVideoWnd->DestroyWindow();
-            if (m_fFirstFSAfterLaunchOnFS) {
+            if (m_bNeedZoomAfterFullscreenExit) {
                 if (s.fRememberZoomLevel) {
                     ZoomVideoWindow();
                 }
-                m_fFirstFSAfterLaunchOnFS = false;
+                m_bNeedZoomAfterFullscreenExit = false;
             }
 
             if (s.fShowOSD) {
@@ -11811,16 +12015,18 @@ void CMainFrame::ToggleD3DFullscreen(bool fSwitchScreenResWhenHasTo)
             MoveVideoWindow();
 
             // Turn on D3D Fullscreen
-            pD3DFS->SetD3DFullscreen(true);
+            m_pD3DFSC->SetD3DFullscreen(true);
 
             if (s.fShowOSD || s.fShowDebugInfo) {
-                if (m_pMFVMB) {
-                    m_OSD.Start(m_pVideoWnd, m_pMFVMB, true);
+                if (m_pVMB || m_pMFVMB) {
+                    m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, true);
                 }
             }
 
             m_eventc.FireEvent(MpcEvent::SWITCHED_TO_FULLSCREEN_D3D);
         }
+    } else {
+        ASSERT(false);
     }
 }
 
@@ -12247,24 +12453,34 @@ CSize CMainFrame::GetVideoOrArtSize(MINMAXINFO& mmi)
     return videoSize;
 }
 
-CSize CMainFrame::GetZoomWindowSize(double dScale)
+CSize CMainFrame::GetZoomWindowSize(double dScale, bool ignore_video_size)
 {
-    const auto& s = AfxGetAppSettings();
     CSize ret;
 
     if (dScale >= 0.0 && GetLoadState() == MLS::LOADED) {
+        const auto& s = AfxGetAppSettings();
         MINMAXINFO mmi;
         CSize videoSize = GetVideoOrArtSize(mmi);
-        if (videoSize.cx <= 1 || videoSize.cy <= 1) {
-            // Do not adjust window width if blank logo is used (1x1px) or cover-art size is limited
-            // to avoid shrinking window width too much and give ability to revert pre 94dc87c behavior
+
+        if (ignore_video_size || videoSize.cx <= 1 || videoSize.cy <= 1) {
             videoSize.SetSize(0, 0);
+        }
+        if (videoSize.cx == 0 || m_fAudioOnly && videoSize.cy < 300) {
             CRect windowRect;
             GetWindowRect(windowRect);
-            mmi.ptMinTrackSize.x = std::max<long>(windowRect.Width(), mmi.ptMinTrackSize.x);
+            if (windowRect.Height() < 420 && windowRect.Width() < 3800) {
+                // keep existing width, since it probably was intentionally made wider by user
+                mmi.ptMinTrackSize.x = std::max<long>(windowRect.Width(), mmi.ptMinTrackSize.x);
+                if (m_fAudioOnly) {
+                    // also keep existing height
+                    videoSize.SetSize(0, 0);
+                    mmi.ptMinTrackSize.y = std::max<long>(windowRect.Height(), mmi.ptMinTrackSize.y);
+                }
+            }
+
         }
 
-        CSize videoTargetSize(int(videoSize.cx * dScale + 0.5), int(videoSize.cy * dScale + 0.5));
+        CSize videoTargetSize = videoSize;
 
         CSize controlsSize;
         const bool bToolbarsOnVideo = m_controls.ToolbarsCoverVideo();
@@ -12295,24 +12511,28 @@ CSize CMainFrame::GetZoomWindowSize(double dScale)
                 workRect.InflateRect(GetInvisibleBorderSize());
             }
 
-            // don't go larger than the current monitor working area and prevent black bars in this case
-            CSize videoSpaceSize = workRect.Size() - controlsSize - decorationsRect.Size();
+            if (videoSize.cx > 0) {
+                // don't go larger than the current monitor working area and prevent black bars in this case
+                CSize videoSpaceSize = workRect.Size() - controlsSize - decorationsRect.Size();
 
-            // Do not adjust window size for video frame aspect ratio when video size is independent from window size
-            const bool bAdjustWindowAR = !(s.iDefaultVideoSize == DVS_HALF || s.iDefaultVideoSize == DVS_NORMAL || s.iDefaultVideoSize == DVS_DOUBLE);
-            const double videoAR = videoSize.cx / (double)videoSize.cy;
+                // Do not adjust window size for video frame aspect ratio when video size is independent from window size
+                const bool bAdjustWindowAR = !(s.iDefaultVideoSize == DVS_HALF || s.iDefaultVideoSize == DVS_NORMAL || s.iDefaultVideoSize == DVS_DOUBLE);
+                const double videoAR = videoSize.cx / (double)videoSize.cy;
 
-            if (videoTargetSize.cx > videoSpaceSize.cx) {
-                videoTargetSize.cx = videoSpaceSize.cx;
-                if (bAdjustWindowAR) {
-                    videoTargetSize.cy = std::lround(videoSpaceSize.cx / videoAR);
+                videoTargetSize = CSize(int(videoSize.cx * dScale + 0.5), int(videoSize.cy * dScale + 0.5));
+
+                if (videoTargetSize.cx > videoSpaceSize.cx) {
+                    videoTargetSize.cx = videoSpaceSize.cx;
+                    if (bAdjustWindowAR) {
+                        videoTargetSize.cy = std::lround(videoSpaceSize.cx / videoAR);
+                    }
                 }
-            }
 
-            if (videoTargetSize.cy > videoSpaceSize.cy) {
-                videoTargetSize.cy = videoSpaceSize.cy;
-                if (bAdjustWindowAR) {
-                    videoTargetSize.cx = std::lround(videoSpaceSize.cy * videoAR);
+                if (videoTargetSize.cy > videoSpaceSize.cy) {
+                    videoTargetSize.cy = videoSpaceSize.cy;
+                    if (bAdjustWindowAR) {
+                        videoTargetSize.cx = std::lround(videoSpaceSize.cy * videoAR);
+                    }
                 }
             }
         } else {
@@ -12397,7 +12617,7 @@ CRect CMainFrame::GetZoomWindowRect(const CSize& size, bool ignoreSavedPosition 
     return ret;
 }
 
-void CMainFrame::ZoomVideoWindow(double dScale/* = ZOOM_DEFAULT_LEVEL*/)
+void CMainFrame::ZoomVideoWindow(double dScale/* = ZOOM_DEFAULT_LEVEL*/, bool ignore_video_size /*= false*/)
 {
     const auto& s = AfxGetAppSettings();
 
@@ -12434,7 +12654,7 @@ void CMainFrame::ZoomVideoWindow(double dScale/* = ZOOM_DEFAULT_LEVEL*/)
             ASSERT(FALSE);
             return;
         }
-        MoveWindow(GetZoomWindowRect(GetZoomWindowSize(dScale), !s.fRememberWindowPos));
+        MoveWindow(GetZoomWindowRect(GetZoomWindowSize(dScale, ignore_video_size), !s.fRememberWindowPos));
     }
 }
 
@@ -12539,7 +12759,7 @@ void CMainFrame::RepaintVideo(const bool bForceRepaint/* = false*/)
 {
     if (!m_bDelaySetOutputRect && (m_pCAP || m_pMFVDC)) {
         OAFilterState fs = GetMediaState();
-        if (fs == State_Paused || fs == State_Stopped || bForceRepaint) {
+        if (fs == State_Paused || fs == State_Stopped || bForceRepaint || (m_bDVDStillOn && GetPlaybackMode() == PM_DVD)) {
             if (m_pCAP) {
                 m_pCAP->Paint(false);
             } else if (m_pMFVDC) {
@@ -12868,13 +13088,24 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
     const CAppSettings& s = AfxGetAppSettings();
 
     m_pGB_preview = nullptr;
-    m_bUseSeekPreview = s.fSeekPreview && m_wndPreView && ::IsWindow(m_wndPreView.m_hWnd);
+    m_bUseSeekPreview = s.fUseSeekbarHover && s.fSeekPreview && m_wndPreView && ::IsWindow(m_wndPreView.m_hWnd) && !(s.nCLSwitches & CLSW_THUMBNAILS);
     if (m_bUseSeekPreview) {
+#if 1
+        if (auto pOpenDVDData = dynamic_cast<OpenDVDData*>(pOMD)) {
+            // preview does not always work good with DVD even when loaded from hdd
+            m_bUseSeekPreview = false;
+        } else
+#endif
         if (OpenFileData* pFileData = dynamic_cast<OpenFileData*>(pOMD)) {
             CString fn = pFileData->fns.GetHead();
-            if (!fn.IsEmpty() && ((fn.Find(L"://") >= 0) || IsAudioFilename(fn) || PathIsOnOpticalDisc(fn))) {
-                // disable seek preview for: streaming data, audio files, files on optical disc
+            if (fn.IsEmpty()) {
                 m_bUseSeekPreview = false;
+            } else {
+                CString ext = CPath(fn).GetExtension().MakeLower();
+                if (((fn.Find(L"://") >= 0) || IsAudioFileExt(ext) || ext == L".avs" || PathIsOnOpticalDisc(fn))) {
+                    // disable seek preview for: streaming data, audio files, files on optical disc
+                    m_bUseSeekPreview = false;
+                }
             }
         }
     }
@@ -12903,7 +13134,14 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
         m_fCustomGraph = m_fShockwaveGraph;
 
         if (!m_fCustomGraph) {
-            m_pGB = DEBUG_NEW CFGManagerPlayer(_T("CFGManagerPlayer"), nullptr, m_pVideoWnd->m_hWnd);
+            CFGManagerPlayer* fgm = DEBUG_NEW CFGManagerPlayer(_T("CFGManagerPlayer"), nullptr, m_pVideoWnd->m_hWnd);
+            if (!pOpenFileData->useragent.IsEmpty()) {
+                fgm->SetUserAgent(pOpenFileData->useragent);
+            }
+            if (!pOpenFileData->referrer.IsEmpty()) {
+                fgm->SetReferrer(pOpenFileData->referrer);
+            }
+            m_pGB = fgm;
 
             if (m_pGB && m_bUseSeekPreview) {
                 // build graph for preview
@@ -12985,13 +13223,15 @@ CWnd* CMainFrame::GetModalParent()
 }
 
 void CMainFrame::ShowMediaTypesDialog() {
-    CAutoLock lck(&lockModalDialog);
-    CComQIPtr<IGraphBuilderDeadEnd> pGBDE = m_pGB;
-    if (pGBDE && pGBDE->GetCount()) {
-        mediaTypesErrorDlg = DEBUG_NEW CMediaTypesDlg(pGBDE, GetModalParent());
-        mediaTypesErrorDlg->DoModal();
-        delete mediaTypesErrorDlg;
-        mediaTypesErrorDlg = nullptr;
+    if (!m_fOpeningAborted) {
+        CAutoLock lck(&lockModalDialog);
+        CComQIPtr<IGraphBuilderDeadEnd> pGBDE = m_pGB;
+        if (pGBDE && pGBDE->GetCount()) {
+            mediaTypesErrorDlg = DEBUG_NEW CMediaTypesDlg(pGBDE, GetModalParent());
+            mediaTypesErrorDlg->DoModal();
+            delete mediaTypesErrorDlg;
+            mediaTypesErrorDlg = nullptr;
+        }
     }
 }
 
@@ -13037,10 +13277,6 @@ HRESULT CMainFrame::PreviewWindowHide() {
         ::SystemParametersInfo(SPI_SETANIMATION, sizeof(ANIMATIONINFO), &AnimationInfo, 0);
 
         m_wndPreView.ShowWindow(SW_HIDE);
-        m_wndPreView.SetWindowPos(&wndNoTopMost, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        if (WindowExpectedOnTop()) {
-            SetWindowPos(&wndTopMost, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        }
 
         // Enable animation
         AnimationInfo.iMinAnimate = WindowAnimationType;
@@ -13183,6 +13419,16 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
             lastOpenFile = fn;
         }
 
+        CString ext = GetFileExt(fn);
+        if (ext == ".mpls") {
+            CString fnn = PathUtils::StripPathOrUrl(fn);
+            CString tempath(fn);
+            tempath.Replace(fnn, _T(""));
+            tempath.Replace(_T("BDMV\\PLAYLIST\\"), _T(""));
+            CHdmvClipInfo clipinfo;
+            m_bHasBDMeta = clipinfo.ReadMeta(tempath, m_BDMeta);
+        }
+
         HRESULT hr;
         HRESULT rarHR = E_NOTIMPL;
 #if INTERNAL_SOURCEFILTER_RFS
@@ -13193,6 +13439,7 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
             }
         }
 #endif
+
         if (E_NOTIMPL == rarHR) {
             hr = m_pGB->RenderFile(fn, nullptr);
         } else {
@@ -13201,6 +13448,10 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
 
         if (FAILED(hr)) {
             if (bMainFile) {
+                if (m_pME) {
+                    m_pME->SetNotifyWindow(NULL, 0, 0);
+                }
+
                 if (s.fReportFailedPins) {
                     ShowMediaTypesDialog();
                 }
@@ -13888,7 +14139,7 @@ void CMainFrame::OpenDVD(OpenDVDData* pODD)
     WCHAR buff[MAX_PATH];
     ULONG len = 0;
     if (SUCCEEDED(hr = m_pDVDI->GetDVDDirectory(buff, _countof(buff), &len))) {
-        pODD->title = CString(CStringW(buff)).Trim(_T("\\"));
+        pODD->title = CString(CStringW(buff)).TrimRight(_T("\\"));
     }
 
     if (s.fKeepHistory) {
@@ -13946,9 +14197,6 @@ HRESULT CMainFrame::OpenBDAGraph()
                 if (!m_pAMNS) {
                     m_pAMNS = pBF;
                 }
-                if (!m_pSplitterSS) {
-                    m_pSplitterSS = pBF;
-                }
             }
         }
         // IAMStreamSelect / IDirectVobSub
@@ -13956,25 +14204,9 @@ HRESULT CMainFrame::OpenBDAGraph()
             if (clsid == __uuidof(CAudioSwitcherFilter)) {
                 m_pAudioSwitcherSS = pBF;
             } else {
-                if (clsid == GUID_LAVSplitter) {
-                    m_pSplitterSS = pBF;
-                } else {
-                    if (clsid == CLSID_VSFilter || clsid == CLSID_XySubFilter) {
-                        m_pDVS = pBF;
-                        m_pDVS2 = pBF;
-                    } else {
-                        if (clsid != CLSID_MPCBEAudioRenderer) {
-                            if (CComQIPtr<IAMStreamSelect> pTest = pBF) {
-                                if (!m_pOtherSS[0]) {
-                                    m_pOtherSS[0] = pBF;
-                                } else if (!m_pOtherSS[1]) {
-                                    m_pOtherSS[1] = pBF;
-                                } else {
-                                    ASSERT(false);
-                                }
-                            }
-                        }
-                    }
+                if (clsid == CLSID_VSFilter || clsid == CLSID_XySubFilter) {
+                    m_pDVS = pBF;
+                    m_pDVS2 = pBF;
                 }
             }
         }
@@ -13990,6 +14222,9 @@ HRESULT CMainFrame::OpenBDAGraph()
         EndEnumFilters;
 
         ASSERT(m_pFSF);
+
+        // BDA graph builder implements IAMStreamSelect
+        m_pSplitterSS = m_pGB;
     }
     return hr;
 }
@@ -14316,7 +14551,7 @@ void CMainFrame::OpenSetupInfoBar(bool bClear /*= true*/)
                         rating = bstr.m_str;
                     }
                     bstr.Empty();
-                    if (SUCCEEDED(pAMMC->get_Description(&bstr)) && bstr.Length()) {
+                    if (SUCCEEDED(pAMMC->get_Description(&bstr)) && bstr.Length() > 0 && bstr.Length() < 512) {
                         description = bstr.m_str;
                     }
                     bstr.Empty();
@@ -14419,6 +14654,118 @@ void CMainFrame::OpenSetupStatsBar()
     }
 }
 
+void CMainFrame::CheckSelectedAudioStream()
+{
+    int nChannels = 0;
+    int audiostreamcount = 0;
+    UINT audiobitmapid = IDB_AUDIOTYPE_NOAUDIO;
+    m_loadedAudioTrackIndex = -1;
+
+    if (m_pAudioSwitcherSS) {
+        DWORD cStreams = 0;
+        if (SUCCEEDED(m_pAudioSwitcherSS->Count(&cStreams)) && cStreams > 0) {
+            LCID lcid = 0;
+            DWORD dwFlags, dwGroup;
+            AM_MEDIA_TYPE* pmt = nullptr;
+            for (DWORD i = 0; i < cStreams; i++) {
+                if (SUCCEEDED(m_pAudioSwitcherSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
+                    if (dwGroup == 1) {
+                        if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
+                            m_loadedAudioTrackIndex = audiostreamcount;
+                            nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
+                        }
+                        audiostreamcount++;
+                    }
+                    DeleteMediaType(pmt);
+                }
+            }
+        }
+    }
+    if (audiostreamcount == 0 && m_pSplitterSS) {
+        DWORD cStreams = 0;
+        if (SUCCEEDED(m_pSplitterSS->Count(&cStreams)) && cStreams > 0) {
+            DWORD dwFlags, dwGroup;
+            LCID lcid = 0;
+            AM_MEDIA_TYPE* pmt = nullptr;
+            for (DWORD i = 0; i < cStreams; i++) {
+                if (SUCCEEDED(m_pSplitterSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
+                    if (dwGroup == 1) {
+                        if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
+                            m_loadedAudioTrackIndex = audiostreamcount;
+                            nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
+                        }
+                        audiostreamcount++;
+                    }
+                    DeleteMediaType(pmt);
+                }
+            }
+        }
+    }
+    if (audiostreamcount == 0 && m_pSplitterDubSS) {
+        DWORD cStreams = 0;
+        if (SUCCEEDED(m_pSplitterDubSS->Count(&cStreams)) && cStreams > 0) {
+            DWORD dwFlags, dwGroup;
+            LCID lcid = 0;
+            AM_MEDIA_TYPE* pmt = nullptr;
+            for (DWORD i = 0; i < cStreams; i++) {
+                if (SUCCEEDED(m_pSplitterDubSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
+                    if (dwGroup == 1) {
+                        if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
+                            m_loadedAudioTrackIndex = audiostreamcount;
+                            nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
+                        }
+                        audiostreamcount++;
+                    }
+                    DeleteMediaType(pmt);
+                }
+            }
+        }
+    }
+    if (audiostreamcount == 0 && !m_pAudioSwitcherSS) { // Fallback
+        BeginEnumFilters(m_pGB, pEF, pBF) {
+            CComQIPtr<IBasicAudio> pBA = pBF; // implemented by audio renderers
+            bool notrenderer = false;
+
+            BeginEnumPins(pBF, pEP, pPin) {
+                if (S_OK == m_pGB->IsPinDirection(pPin, PINDIR_INPUT) && S_OK == m_pGB->IsPinConnected(pPin)) {
+                    AM_MEDIA_TYPE mt;
+                    if (SUCCEEDED(pPin->ConnectionMediaType(&mt))) {
+                        if (mt.majortype == MEDIATYPE_Audio) {
+                            notrenderer = !pBA;
+                            audiostreamcount = 1;
+                            nChannels = UpdateSelectedAudioStreamInfo(-1, &mt, -1);
+                            break;
+                        } else if (mt.majortype == MEDIATYPE_Midi) {
+                            notrenderer = true;
+                            audiostreamcount = 1;
+                            nChannels = UpdateSelectedAudioStreamInfo(-1, &mt, -1);
+                            break;
+                        }
+                    }
+                }
+            }
+            EndEnumPins;
+
+            if (nChannels > 0 && notrenderer) { // prefer audio decoder above renderer
+                break;
+            }
+        }
+        EndEnumFilters;
+    }
+
+    if (audiostreamcount == 0) {
+        m_loadedAudioTrackIndex = -1;
+        UpdateSelectedAudioStreamInfo(-1, nullptr, -1);
+    }
+
+    if (nChannels >= 2) {
+        audiobitmapid = IDB_AUDIOTYPE_STEREO;
+    } else if (nChannels == 1) {
+        audiobitmapid = IDB_AUDIOTYPE_MONO;
+    }
+    m_wndStatusBar.SetStatusBitmap(audiobitmapid);
+}
+
 void CMainFrame::OpenSetupStatusBar()
 {
     m_wndStatusBar.ShowTimer(true);
@@ -14462,89 +14809,7 @@ void CMainFrame::OpenSetupStatusBar()
             m_statusbarVideoFormat = fcc;
         }
 
-
-        int nChannels = 0;
-        int audiostreamcount = 0;
-        m_loadedAudioTrackIndex = -1;
-
-        if (m_pSplitterSS) {
-            DWORD cStreams = 0;
-            if (SUCCEEDED(m_pSplitterSS->Count(&cStreams)) && cStreams > 0) {
-                DWORD dwFlags, dwGroup;
-                LCID lcid = 0;
-                AM_MEDIA_TYPE* pmt = nullptr;
-                for (DWORD i = 0; i < cStreams; i++) {
-                    if (SUCCEEDED(m_pSplitterSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
-                        if (dwGroup == 1) {
-                            if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
-                                m_loadedAudioTrackIndex = audiostreamcount;
-                                nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
-                            }
-                            audiostreamcount++;
-                        }
-                        DeleteMediaType(pmt);
-                    }
-                }
-                if (m_loadedAudioTrackIndex == -1) {
-                    UpdateSelectedAudioStreamInfo(-1, nullptr, -1);
-                }
-            }
-        }
-        if (audiostreamcount == 0 && m_pSplitterDubSS) {
-            DWORD cStreams = 0;
-            if (SUCCEEDED(m_pSplitterDubSS->Count(&cStreams)) && cStreams > 0) {
-                DWORD dwFlags, dwGroup;
-                LCID lcid = 0;
-                AM_MEDIA_TYPE* pmt = nullptr;
-                for (DWORD i = 0; i < cStreams; i++) {
-                    if (SUCCEEDED(m_pSplitterDubSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
-                        if (dwGroup == 1) {
-                            if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
-                                m_loadedAudioTrackIndex = audiostreamcount;
-                                nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
-                            }
-                            audiostreamcount++;
-                        }
-                        DeleteMediaType(pmt);
-                    }
-                }
-                if (m_loadedAudioTrackIndex == -1) {
-                    UpdateSelectedAudioStreamInfo(-1, nullptr, -1);
-                }
-            }
-        }
-        if (audiostreamcount == 0 && m_pAudioSwitcherSS) { // Fallback
-            DWORD cStreams = 0;
-            if (SUCCEEDED(m_pAudioSwitcherSS->Count(&cStreams)) && cStreams > 0) {
-                LCID lcid = 0;
-                DWORD dwFlags, dwGroup;
-                AM_MEDIA_TYPE* pmt = nullptr;
-                for (DWORD i = 0; i < cStreams; i++) {
-                    if (SUCCEEDED(m_pAudioSwitcherSS->Info(i, &pmt, &dwFlags, &lcid, &dwGroup, nullptr, nullptr, nullptr))) {
-                        if (dwGroup == 1) {
-                            if (dwFlags & (AMSTREAMSELECTINFO_ENABLED | AMSTREAMSELECTINFO_EXCLUSIVE)) {
-                                m_loadedAudioTrackIndex = audiostreamcount;
-                                nChannels = UpdateSelectedAudioStreamInfo(m_loadedAudioTrackIndex, pmt, lcid);
-                            }
-                            audiostreamcount++;
-                        }
-                        DeleteMediaType(pmt);
-                    }
-                }
-            }
-        }
-        if (audiostreamcount == 0) {
-            m_loadedAudioTrackIndex = -1;
-            UpdateSelectedAudioStreamInfo(-1, nullptr, -1);
-        }
-
-        UINT id = IDB_AUDIOTYPE_NOAUDIO;
-        if (nChannels >= 2) {
-            id = IDB_AUDIOTYPE_STEREO;
-        } else if (nChannels == 1) {
-            id = IDB_AUDIOTYPE_MONO;
-        }
-        m_wndStatusBar.SetStatusBitmap(id);
+        CheckSelectedAudioStream();        
     }
 }
 
@@ -15013,15 +15278,13 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
     OpenDeviceData* pDeviceData = dynamic_cast<OpenDeviceData*>(pOMD.m_p);
     ASSERT(pFileData || pDVDData || pDeviceData);
 
-    // Clear DXVA state ...
-    ClearDXVAState();
-
     m_pCAP3 = nullptr;
     m_pCAP2 = nullptr;
     m_pCAP = nullptr;
     m_pVMRWC = nullptr;
     m_pVMRMC = nullptr;
     m_pMFVDC = nullptr;
+    m_pVMB = nullptr;
     m_pMFVMB = nullptr;
     m_pMFVP = nullptr;
     m_pMVRC = nullptr;
@@ -15029,6 +15292,8 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
     m_pMVRS = nullptr;
     m_pMVRSR = nullptr;
     m_pMVRFG = nullptr;
+    m_pMVTO = nullptr;
+    m_pD3DFSC = nullptr;
     m_pLN21 = nullptr;
     m_pCAP2_preview = nullptr;
     m_pMFVDC_preview = nullptr;
@@ -15058,7 +15323,6 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
                 throw (UINT)IDS_AG_ABORTED;
             }
         };
-        checkAborted();
 
         OpenCreateGraphObject(pOMD);
         checkAborted();
@@ -15084,15 +15348,12 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
             throw (UINT)IDS_MAINFRM_88;
         }
 
-        CComPtr<IVMRMixerBitmap9>    pVMB   = nullptr;
-        CComPtr<IMadVRTextOsd>       pMVTO  = nullptr;
-
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pCAP), TRUE);
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pCAP2), TRUE);
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pCAP3), TRUE);
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMRWC), FALSE); // might have IVMRMixerBitmap9, but not IVMRWindowlessControl9
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMRMC), TRUE);
-        m_pGB->FindInterface(IID_PPV_ARGS(&pVMB), TRUE);
+        m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMB), TRUE);
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pMFVMB), TRUE);
 
         m_pMVRC = m_pCAP;
@@ -15100,23 +15361,9 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         m_pMVRS = m_pCAP;
         m_pMVRSR = m_pCAP;
         m_pMVRFG = m_pCAP;
-        pMVTO = m_pCAP;
+        m_pMVTO = m_pCAP;
+        m_pD3DFSC = m_pCAP;
 
-        if (s.fShowOSD || s.fShowDebugInfo) { // Force OSD on when the debug switch is used
-            m_OSD.Stop();
-
-            if (IsD3DFullScreenMode() && !m_fAudioOnly) {
-                if (m_pMFVMB) {
-                    m_OSD.Start(m_pVideoWnd, m_pMFVMB, true);
-                }
-            } else {
-                if (pMVTO) {
-                    m_OSD.Start(m_pVideoWnd, pMVTO);
-                } else {
-                    m_OSD.Start(m_pOSDWnd);
-                }
-            }
-        }
         checkAborted();
 
         SetupVMR9ColorControl();
@@ -15160,6 +15407,20 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         OpenSetupVideo();
         checkAborted();
 
+        if (s.fShowOSD || s.fShowDebugInfo) { // Force OSD on when the debug switch is used
+            m_OSD.Stop();
+
+            if (m_pMVTO) {
+                m_OSD.Start(m_pVideoWnd, m_pMVTO);
+            } else if (m_fFullScreen && !m_fAudioOnly && m_pCAP3) { // MPCVR
+                m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, false);
+            } else if (!m_fAudioOnly && IsD3DFullScreenMode() && (m_pVMB || m_pMFVMB)) {
+                m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, true);
+            } else {
+                m_OSD.Start(m_pOSDWnd);
+            }
+        }
+
         OpenSetupAudio();
         checkAborted();
 
@@ -15195,29 +15456,25 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
                 abRepeat = reloadABRepeat;
                 reloadABRepeat = ABRepeat();
             }
+
             auto* pMRU = &AfxGetAppSettings().MRU;
-            if (m_bRememberFilePos) { // Check if we want to remember the position
-                // Always update the file positions list so that the position
-                // is correctly saved but only restore the remembered position
-                // if no explicit start time was already set.
-                if (pMRU->rfe_array.GetCount()) {
-                    if (!rtPos) {
-                        rtPos = pMRU->GetCurrentFilePosition();
-                        if (rtPos >= rtDur || rtDur - rtPos < 50000000LL) {
-                            rtPos = 0;
-                        }
-                    }
-                    if (!abRepeat) {
-                        abRepeat = pMRU->GetCurrentABRepeat();
+            if (pMRU->rfe_array.GetCount()) {
+                if (!rtPos && m_bRememberFilePos) {
+                    rtPos = pMRU->GetCurrentFilePosition();
+                    if (rtPos >= rtDur || rtDur - rtPos < 50000000LL) {
+                        rtPos = 0;
                     }
                 }
-            }
-            if (s.fKeepHistory && s.bRememberTrackSelection && pMRU->rfe_array.GetCount()) {
-                if (m_loadedAudioTrackIndex == -1) {
-                    m_loadedAudioTrackIndex = pMRU->GetCurrentAudioTrack();
+                if (!abRepeat && s.fKeepHistory && s.fRememberFilePos) {
+                    abRepeat = pMRU->GetCurrentABRepeat();
                 }
-                if (m_loadedSubtitleTrackIndex == -1) {
-                    m_loadedSubtitleTrackIndex = pMRU->GetCurrentSubtitleTrack();
+                if (s.fKeepHistory && s.bRememberTrackSelection) {
+                    if (m_loadedAudioTrackIndex == -1) {
+                        m_loadedAudioTrackIndex = pMRU->GetCurrentAudioTrack();
+                    }
+                    if (m_loadedSubtitleTrackIndex == -1) {
+                        m_loadedSubtitleTrackIndex = pMRU->GetCurrentSubtitleTrack();
+                    }
                 }
             }
 
@@ -15388,6 +15645,8 @@ void CMainFrame::CloseMediaPrivate()
         m_pVW->put_Owner(NULL);
     }
 
+    m_bIsMPCVRExclusiveMode = false;
+
     // IMPORTANT: IVMRSurfaceAllocatorNotify/IVMRSurfaceAllocatorNotify9 has to be released before the VMR/VMR9, otherwise it will crash in Release()
     m_OSD.Stop();
     m_pMVRFG.Release();
@@ -15395,11 +15654,14 @@ void CMainFrame::CloseMediaPrivate()
     m_pMVRS.Release();
     m_pMVRC.Release();
     m_pMVRI.Release();
+    m_pMVTO.Release();
+    m_pD3DFSC.Release();
     m_pCAP3.Release();
     m_pCAP2.Release();
     m_pCAP.Release();
     m_pVMRWC.Release();
     m_pVMRMC.Release();
+    m_pVMB.Release();
     m_pMFVMB.Release();
     m_pMFVP.Release();
     m_pMFVDC.Release();
@@ -15451,7 +15713,9 @@ void CMainFrame::CloseMediaPrivate()
     }
 
     if (m_pGB_preview) {
-        PreviewWindowHide();
+        TRACE(_T("Stopping preview graph\n"));
+        MediaControlStopPreview();
+        TRACE(_T("Releasing preview graph\n"));
         ReleasePreviewGraph();
     }
 
@@ -16190,8 +16454,9 @@ void CMainFrame::SetupSubtitlesSubMenu()
         VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUBTITLES_RELOAD)));
         VERIFY(subMenu.AppendMenu(MF_SEPARATOR));
 
-        VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUBTITLES_ENABLE)));
-        VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUBTITLES_DEFAULT_STYLE)));
+        VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUBTITLES_HIDE)));
+        VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUB_OVERRIDE_DEFAULT_STYLE)));
+        VERIFY(subMenu.AppendMenu(MF_STRING | MF_ENABLED, id++, ResStr(IDS_SUB_OVERRIDE_ALL_STYLES)));
         VERIFY(subMenu.AppendMenu(MF_SEPARATOR));
 
         // Build the dynamic menu's items
@@ -16296,20 +16561,23 @@ void CMainFrame::SetupSubtitlesSubMenu()
         if (!bTextSubtitles) {
             subMenu.EnableMenuItem(nItemsBeforeStart + 1, MF_BYPOSITION | MF_GRAYED);
         }
-        // Enabled
-        if (s.fEnableSubtitles) {
+        // Hide
+        if (!s.fEnableSubtitles) {
             subMenu.CheckMenuItem(nItemsBeforeStart + 4, MF_BYPOSITION | MF_CHECKED);
         }
-        // Default style
-        // TODO: foxX - default subtitles style toggle here; still wip
+        // Style overrides
         if (!bTextSubtitles) {
             subMenu.EnableMenuItem(nItemsBeforeStart + 5, MF_BYPOSITION | MF_GRAYED);
+            subMenu.EnableMenuItem(nItemsBeforeStart + 6, MF_BYPOSITION | MF_GRAYED);
         }
-        if (s.fUseDefaultSubtitlesStyle) {
+        if (s.bSubtitleOverrideDefaultStyle) {
             subMenu.CheckMenuItem(nItemsBeforeStart + 5, MF_BYPOSITION | MF_CHECKED);
         }
+        if (s.bSubtitleOverrideAllStyles) {
+            subMenu.CheckMenuItem(nItemsBeforeStart + 6, MF_BYPOSITION | MF_CHECKED);
+        }
         if (iSelected >= 0) {
-            VERIFY(subMenu.CheckMenuRadioItem(nItemsBeforeStart + 7, nItemsBeforeStart + 7 + i - 1, nItemsBeforeStart + 7 + iSelected, MF_BYPOSITION));
+            VERIFY(subMenu.CheckMenuRadioItem(nItemsBeforeStart + 8, nItemsBeforeStart + 8 + i - 1, nItemsBeforeStart + 8 + iSelected, MF_BYPOSITION));
         }
     } else if (GetPlaybackMode() == PM_FILE) {
         SetupNavStreamSelectSubMenu(subMenu, id, 2);
@@ -16403,12 +16671,10 @@ void CMainFrame::SetupJumpToSubMenus(CMenu* parentMenu /*= nullptr*/, int iInser
     };
 
     if (GetPlaybackMode() == PM_FILE) {
-        if (m_MPLSPlaylist.GetCount() > 1) {
+        if (m_MPLSPlaylist.size() > 1) {
             menuStartRadioSection();
-            POSITION pos = m_MPLSPlaylist.GetHeadPosition();
-            while (pos) {
+            for (auto& Item : m_MPLSPlaylist) {
                 UINT flags = MF_BYCOMMAND | MF_STRING | MF_ENABLED;
-                CHdmvClipInfo::PlaylistItem Item = m_MPLSPlaylist.GetNext(pos);
                 CString time = _T("[") + ReftimeToString2(Item.Duration()) + _T("]");
                 CString name = PathUtils::StripPathOrUrl(Item.m_strFileName);
 
@@ -16790,7 +17056,13 @@ void CMainFrame::SetupRecentFilesSubMenu()
                     }
                     int targetlen = 150 - title.GetLength();
                     if (PathUtils::IsURL(p)) {
-                        p.Format(_T("%s (%s)"), static_cast<LPCWSTR>(title), static_cast<LPCWSTR>(ShortenURL(p, targetlen, true)));
+                        if (title.Right(1) == L')') {
+                            // probably already contains shorturl
+                            p = title;
+                        } else {
+                            CString shorturl = ShortenURL(p, targetlen, true);
+                            p.Format(_T("%s (%s)"), static_cast<LPCWSTR>(title), static_cast<LPCWSTR>(shorturl));
+                        }
                     } else {
                         CString fn = PathUtils::StripPathOrUrl(p);
                         if (fn.GetLength() > targetlen) { // If file name is too long, cut middle part.
@@ -17334,14 +17606,12 @@ void CMainFrame::UpdateSubtitleColorInfo()
 
     // store video mediatype, so colorspace information can be extracted when present
     // FIXME: mediatype extended colorinfo may be absent on initial connection, call this again after first frame has been decoded?
-    if (m_pCAP) {
-        CComQIPtr<IBaseFilter> pBF = m_pCAP;
-        CComPtr<IPin> pPin = GetFirstPin(pBF);
-        if (pPin) {
-            AM_MEDIA_TYPE mt;
-            if (SUCCEEDED(pPin->ConnectionMediaType(&mt))) {
-                m_pCAP->SetVideoMediaType(CMediaType(mt));
-            }
+    CComQIPtr<IBaseFilter> pBF = m_pCAP;
+    CComPtr<IPin> pPin = GetFirstPin(pBF);
+    if (pPin) {
+        AM_MEDIA_TYPE mt;
+        if (SUCCEEDED(pPin->ConnectionMediaType(&mt))) {
+            m_pCAP->SetVideoMediaType(CMediaType(mt));
         }
     }
 
@@ -17382,6 +17652,8 @@ void CMainFrame::SetSubtitle(const SubtitleInput& subInput, bool skip_lcid /* = 
     {
         CAutoLock cAutoLock(&m_csSubLock);
 
+        bool firstuse = !m_pCurrentSubInput.pSubStream;
+
         if (subInput.pSubStream) {
             bool found = false;
             POSITION pos = m_pSubStreams.GetHeadPosition();
@@ -17404,7 +17676,11 @@ void CMainFrame::SetSubtitle(const SubtitleInput& subInput, bool skip_lcid /* = 
         m_pCurrentSubInput = subInput;
 
         UpdateSubtitleRenderingParameters();
-        UpdateSubtitleColorInfo();
+
+        if (firstuse) {
+            // note: can deadlock when calling ConnectionMediaType() with MPCVR when SubPicProvider!=nullptr
+            UpdateSubtitleColorInfo();
+        }
 
         if (!skip_lcid) {
             LCID lcid = 0;
@@ -17841,10 +18117,6 @@ void CMainFrame::DoSeekTo(REFERENCE_TIME rtPos, bool bShowOSD /*= true*/)
     }
 
     if (GetPlaybackMode() == PM_FILE) {
-        if (fs == State_Stopped) {
-            SendMessage(WM_COMMAND, ID_PLAY_PAUSE);
-        }
-
         //SleepEx(5000, False); // artificial slow seek for testing purposes
         if (FAILED(m_pMS->SetPositions(&rtPos, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning))) {
             TRACE(_T("IMediaSeeking SetPositions failure\n"));
@@ -17853,6 +18125,9 @@ void CMainFrame::DoSeekTo(REFERENCE_TIME rtPos, bool bShowOSD /*= true*/)
             }
         }
         UpdateChapterInInfoBar();
+        if (fs == State_Stopped) {
+            SendMessage(WM_COMMAND, ID_PLAY_PAUSE);
+        }
     } else if (GetPlaybackMode() == PM_DVD && m_iDVDDomain == DVD_DOMAIN_Title) {
         if (fs == State_Stopped) {
             SendMessage(WM_COMMAND, ID_PLAY_PAUSE);
@@ -18165,9 +18440,6 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
         }
 
         if (fVidPrev) {
-            CComPtr<IVMRMixerBitmap9>    pVMB;
-            CComPtr<IMadVRTextOsd>       pMVTO;
-
             m_pMVRS.Release();
             m_pMVRFG.Release();
             m_pMVRSR.Release();
@@ -18178,6 +18450,7 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
             m_pCAP.Release();
             m_pVMRWC.Release();
             m_pVMRMC.Release();
+            m_pVMB.Release();
             m_pMFVMB.Release();
             m_pMFVP.Release();
             m_pMFVDC.Release();
@@ -18190,11 +18463,11 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pCAP3), TRUE);
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMRWC), FALSE);
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMRMC), TRUE);
-            m_pGB->FindInterface(IID_PPV_ARGS(&pVMB), TRUE);
+            m_pGB->FindInterface(IID_PPV_ARGS(&m_pVMB), TRUE);
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pMFVMB), TRUE);
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pMFVDC), TRUE);
             m_pGB->FindInterface(IID_PPV_ARGS(&m_pMFVP), TRUE);
-            pMVTO = m_pCAP;
+            m_pMVTO = m_pCAP;
             m_pMVRSR = m_pCAP;
             m_pMVRS = m_pCAP;
             m_pMVRFG = m_pCAP;
@@ -18211,16 +18484,14 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
             if (s.fShowOSD || s.fShowDebugInfo) { // Force OSD on when the debug switch is used
                 m_OSD.Stop();
 
-                if (IsD3DFullScreenMode() && !m_fAudioOnly) {
-                    if (m_pMFVMB) {
-                        m_OSD.Start(m_pVideoWnd, m_pMFVMB, true);
-                    }
+                if (m_pMVTO) {
+                    m_OSD.Start(m_pVideoWnd, m_pMVTO);
+                } else if (m_fFullScreen && !m_fAudioOnly && m_pCAP3) { // MPCVR
+                    m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, false);
+                } else if (!m_fAudioOnly && IsD3DFullScreenMode() && (m_pVMB || m_pMFVMB)) {
+                    m_OSD.Start(m_pVideoWnd, m_pVMB, m_pMFVMB, true);
                 } else {
-                    if (pMVTO) {
-                        m_OSD.Start(m_pVideoWnd, pMVTO);
-                    } else {
-                        m_OSD.Start(m_pOSDWnd);
-                    }
+                    m_OSD.Start(m_pOSDWnd);
                 }
             }
         }
@@ -18375,6 +18646,16 @@ void CMainFrame::ShowOptions(int idPage/* = 0*/)
         return;
     }
 
+    // show warning when INI file is read-only
+    CPath iniPath = AfxGetMyApp()->GetIniPath();
+    if (PathUtils::Exists(iniPath)) {
+        HANDLE hFile = CreateFile(iniPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) {
+            AfxMessageBox(_T("The player settings are currently stored in an INI file located in the installation directory of the player.\n\nThe player currently does not have write access to this file, meaning any changes to the settings will not be saved.\n\nPlease remove the INI file to ensure proper functionality of the player.\n\nSettings will then be stored in the Windows Registry. You can easily backup those settings through: Options > Miscellaneous > Export"), MB_ICONWARNING, 0);
+        }
+        CloseHandle(hFile);
+    }
+
     INT_PTR iRes;
     do {
         CPPageSheet options(ResStr(IDS_OPTIONS_CAPTION), m_pGB, GetModalParent(), idPage);
@@ -18427,10 +18708,8 @@ void CMainFrame::SendStatusMessage(CString msg, int nTimeOut)
 }
 
 bool CMainFrame::CanPreviewUse() {
-    return (m_bUseSeekPreview && m_wndPreView && !m_fAudioOnly
-        && m_eMediaLoadState == MLS::LOADED
-        && (GetPlaybackMode() == PM_DVD || GetPlaybackMode() == PM_FILE)
-        && AfxGetAppSettings().fSeekPreview);
+    return (m_bUseSeekPreview && m_wndPreView && !m_fAudioOnly && m_eMediaLoadState == MLS::LOADED
+        && (GetPlaybackMode() == PM_DVD || GetPlaybackMode() == PM_FILE));
 }
 
 void CMainFrame::OpenCurPlaylistItem(REFERENCE_TIME rtStart, bool reopen /* = false */, ABRepeat abRepeat /* = ABRepeat() */)
@@ -18528,7 +18807,7 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
 
     // clear BD playlist if we are not currently opening something from it
     if (!m_bIsBDPlay) {
-        m_MPLSPlaylist.RemoveAll();
+        m_MPLSPlaylist.clear();
         m_LastOpenBDPath = _T("");
     }
     m_bIsBDPlay = false;
@@ -18550,10 +18829,11 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
         CreateFullScreenWindow();
         m_pVideoWnd = m_pDedicatedFSVideoWnd;
         m_fStartInD3DFullscreen = false;
-    } else if (m_fStartInFullscreen) {
+    } else if (m_fStartInFullscreenSeparate) {
         CreateFullScreenWindow(false);
         m_pVideoWnd = m_pDedicatedFSVideoWnd;
-        m_fStartInFullscreen = false;
+        m_fStartInFullscreenSeparate = false;
+        m_bNeedZoomAfterFullscreenExit = true;
     } else {
         m_pVideoWnd = &m_wndView;
     }
@@ -18562,7 +18842,7 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
     // we are opening new media in fullscreen mode
     // adipose: unless we were previously maximized
     if ((IsFullScreenMode()) && s.fRememberZoomLevel && !wasMaximized) {
-        m_fFirstFSAfterLaunchOnFS = true;
+        m_bNeedZoomAfterFullscreenExit = true;
     }
 
     // don't set video renderer output rect until the window is repositioned
@@ -18617,21 +18897,21 @@ bool CMainFrame::DisplayChange()
 
 void CMainFrame::CloseMediaBeforeOpen()
 {
-    // Wait a little so we can maybe avoid having to close previous media while graph is still being created
-    int wait = 3000;
-    while (GetLoadState() == MLS::LOADING && wait > 0) {
-        SleepEx(200, false);
-        wait -= 200;
-    }
-
-    // close the current graph before opening new media
     if (GetLoadState() != MLS::CLOSED) {
         CloseMedia(true);
-        ASSERT(GetLoadState() == MLS::CLOSED);
     }
 }
 
-void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
+void CMainFrame::ForceCloseProcess()
+{
+    MessageBeep(MB_ICONEXCLAMATION);
+    if (CrashReporter::IsEnabled()) {
+        CrashReporter::Disable();
+    }
+    TerminateProcess(GetCurrentProcess(), 0xDEADBEEF);
+}
+
+void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDelete/* = false*/)
 {
     TRACE(_T("CMainFrame::CloseMedia\n"));
 
@@ -18641,10 +18921,10 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
         m_wndPreView.ShowWindow(SW_HIDE);
     }
     m_bUseSeekPreview = false;
+    m_bDVDStillOn = false;
 
     if (GetLoadState() == MLS::CLOSING || GetLoadState() == MLS::CLOSED) {
-        // double close, should be prevented
-        ASSERT(FALSE);
+        TRACE(_T("Ignoring duplicate close action.\n"));
         return;
     }
 
@@ -18663,7 +18943,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
         m_wndSubtitlesDownloadDialog.DoClear();
 
         // save playback position
-        if (s.fKeepHistory) {
+        if (s.fKeepHistory && !bPendingFileDelete) {
             if (m_bRememberFilePos && !m_fEndOfStream && m_dwReloadPos == 0 && m_pMS) {
                 REFERENCE_TIME rtNow = 0;
                 m_pMS->GetCurrentPosition(&rtNow);
@@ -18692,8 +18972,12 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
             }
         }
 
+        if (m_pME) {
+            m_pME->SetNotifyWindow(NULL, 0, 0);
+        }
+
         // save external subtitle
-        if (g_bExternalSubtitle &&
+        if (g_bExternalSubtitle && !bPendingFileDelete &&
             m_pCurrentSubInput.pSubStream && m_pCurrentSubInput.pSubStream->GetPath().IsEmpty()) {
             const auto& s = AfxGetAppSettings();
             if (s.bAutoSaveDownloadedSubtitles) {
@@ -18710,7 +18994,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
             }
         }
 
-        if (s.fKeepHistory) {
+        if (s.fKeepHistory && !bPendingFileDelete) {
             savehistory = true;
         }
     }
@@ -18739,45 +19023,65 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
 
         // abort current graph task
         if (m_pGB) {
+            if (!m_pAMOP) {
+                m_pAMOP = m_pGB;
+                if (!m_pAMOP) {
+                    BeginEnumFilters(m_pGB, pEF, pBF)
+                        if (m_pAMOP = pBF) {
+                            break;
+                        }
+                    EndEnumFilters;
+                }
+            }
+            if (m_pAMOP) {
+                m_pAMOP->AbortOperation();
+            }
             m_pGB->Abort(); // TODO: lock on graph objects somehow, this is not thread safe
+        }
+        if (m_pGB_preview) {
+            m_pGB_preview->Abort();
         }
 
         if (m_bOpenedThroughThread) {
             BeginWaitCursor();
-            if (WaitForSingleObject(m_evOpenPrivateFinished, 5000) == WAIT_TIMEOUT) { // TODO: it's really dangerous, decide if we should do it at all
-                // graph thread is taking too long to respond, we take extreme measures and terminate it
-                MessageBeep(MB_ICONEXCLAMATION);
-                ASSERT(FALSE);
-#ifndef DEBUG
-                if (bNextIsQueued) {
-#endif
-                    ENSURE(TerminateThread(m_pGraphThread->m_hThread, DWORD_ERROR));
-                    // then we recreate graph thread
-                    bGraphTerminated = true;
-                    CWinThread* newthread = AfxBeginThread(RUNTIME_CLASS(CGraphThread));
-                    if (newthread) {
-                        m_pGraphThread = (CGraphThread*)newthread;
-                        m_pGraphThread->SetMainFrame(this);
-                    } else {
-                        m_pGraphThread = nullptr;
-                    }
-#ifndef DEBUG
-                } else {
-                    if (CrashReporter::IsEnabled()) {
-                        CrashReporter::Disable();
-                    }
-                    exit(1);
+            MSG msg;
+            HANDLE h = m_evOpenPrivateFinished;
+            bool killprocess = true;
+            bool processmsg = true;
+            ULONGLONG start = GetTickCount64();
+            while (processmsg && (GetTickCount64() - start < 6000ULL)) {
+                DWORD res = MsgWaitForMultipleObjectsEx(1, &h, 1000, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                switch (res) {
+                    case WAIT_OBJECT_0:
+                        TRACE(_T("Graph abort successful\n"));
+                        killprocess = false; // event has been signalled
+                        processmsg = false;
+                        break;
+                    case WAIT_OBJECT_0 + 1:
+                        // we have a message - peek and dispatch it
+                        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+                            TranslateMessage(&msg);
+                            DispatchMessage(&msg);
+                        }
+                        break;
+                    case WAIT_TIMEOUT:
+                        break;
+                    default: // unexpected failure
+                        processmsg = false;
+                        break;
                 }
-#endif
+            }
+            if (killprocess)
+            {
+                // Aborting graph failed
+                TRACE(_T("Failed to abort graph creation.\n"));
+                ForceCloseProcess();
             }
             EndWaitCursor();
         } else {
-#ifndef DEBUG
-            if (CrashReporter::IsEnabled()) {
-                CrashReporter::Disable();
-            }
-            exit(1);
-#endif
+            // Aborting graph failed
+            TRACE(_T("Failed to abort graph creation.\n"));
+            ForceCloseProcess();
         }
 
         MSG msg;
@@ -18798,8 +19102,13 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
     m_bSettingUpMenus = true;
     SetLoadState(MLS::CLOSING);
 
+    if (m_pGB_preview) {
+        PreviewWindowHide();
+        m_bUseSeekPreview = false;
+    }
+
     // stop the graph before destroying it
-    OnPlayStop();
+    OnPlayStop(true);
 
     // clear any active osd messages
     //m_OSD.ClearMessage();
@@ -18825,23 +19134,57 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
 
         HANDLE handle = m_evClosePrivateFinished;
         DWORD dwWait;
-        // We don't want to block messages processing completely so we stop waiting
-        // on new message received from another thread or application.
-        while ((dwWait = MsgWaitForMultipleObjects(1, &handle, FALSE, 5000, QS_SENDMESSAGE)) != WAIT_OBJECT_0) {
-            // If we haven't got the event we were waiting for, we ensure that we have got a new message instead
-            if (dwWait == WAIT_OBJECT_0 + 1) {
-                // and we make sure it is handled before resuming waiting
-                MSG msg;
-                PeekMessage(&msg, nullptr, 0, 0, PM_NOREMOVE);
-            } else {
-                ASSERT(FALSE);
-#ifndef DEBUG
-                if (CrashReporter::IsEnabled()) {
-                    CrashReporter::Disable();
-                }
-                exit(1);
-#endif
+        ULONGLONG start = GetTickCount64();
+        ULONGLONG waitdur = 10000ULL;
+        bool killprocess = true;
+        bool processmsg = true;
+        bool extendedwait = false;
+        while (processmsg) {
+            dwWait = MsgWaitForMultipleObjects(1, &handle, FALSE, 1000, QS_SENDMESSAGE);
+            switch (dwWait) {
+                case WAIT_OBJECT_0:
+                    processmsg = false; // event received
+                    killprocess = false;
+                    break;
+                case WAIT_OBJECT_0 + 1:
+                    MSG msg;
+                    PeekMessage(&msg, nullptr, 0, 0, PM_NOREMOVE);
+                    break;
+                case WAIT_TIMEOUT:
+                    break;
+                default:
+                    processmsg = false;
+                    break;
             }
+
+            if (processmsg && (GetTickCount64() - start > waitdur)) {
+                if (extendedwait || m_fFullScreen) {
+                    processmsg = false;
+                } else {
+                     CString msg;
+                    if (!m_pGB && m_pGB_preview) {
+#if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10) && 0
+                        if (CrashReporter::IsEnabled()) {
+                            throw 1;
+                        }
+#endif
+                        msg = L"Timeout when closing preview filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                    } else {
+                        msg = L"Timeout when closing filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                    }
+                    if (IDYES == AfxMessageBox(msg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
+                        processmsg = false;
+                    } else {
+                        extendedwait = true;
+                        start = GetTickCount64();
+                        waitdur = 15000ULL;
+                    }
+                }
+            }
+        }
+        if (killprocess) {
+            TRACE(_T("Failed to close filter graph thread.\n"));
+            ForceCloseProcess();
         }
     } else {
         CloseMediaPrivate();
@@ -18861,7 +19204,9 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/)
 void CMainFrame::StartTunerScan(CAutoPtr<TunerScanData> pTSD)
 {
     // Remove the old info during the scan
-    m_pDVBState->Reset();
+    if (m_pDVBState) {
+        m_pDVBState->Reset();
+    }
     m_wndInfoBar.RemoveAllLines();
     m_wndNavigationBar.m_navdlg.SetChannelInfoAvailable(false);
     RecalcLayout();
@@ -19171,10 +19516,17 @@ bool CMainFrame::IsFullScreenMainFrame() const {
     return m_fFullScreen && !HasDedicatedFSVideoWindow();
 }
 
+bool CMainFrame::IsFullScreenMainFrameExclusiveMPCVR() const {
+    return m_fFullScreen && m_bIsMPCVRExclusiveMode && !HasDedicatedFSVideoWindow();
+}
+
+bool CMainFrame::IsFullScreenSeparate() const {
+    return m_fFullScreen && HasDedicatedFSVideoWindow() && !m_bFullScreenWindowIsD3D;
+}
+
 bool CMainFrame::HasDedicatedFSVideoWindow() const {
     return m_pDedicatedFSVideoWnd && m_pDedicatedFSVideoWnd->IsWindow();
 }
-
 
 bool CMainFrame::IsD3DFullScreenMode() const
 {
@@ -20424,7 +20776,6 @@ void CMainFrame::enableFileDialogHook(CMPCThemeUtil* helper)
     if (AfxGetAppSettings().bWindows10DarkThemeActive) { //hard coded behavior for windows 10 dark theme file dialogs, irrespsective of theme loaded by user (fixing windows bugs)
         watchingFileDialog = true;
         fileDialogHookHelper = helper;
-        fileDialogHandle = nullptr;
     }
 }
 
@@ -20483,12 +20834,12 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
                 break;
         }
         return 0;
-    } else if (watchingFileDialog && message == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE) {
-        fileDialogHandle = (HWND)lParam;
+    } else if (watchingFileDialog && nullptr != fileDialogHookHelper && message == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE) {
+        fileDialogHookHelper->fileDialogHandle = (HWND)lParam;
         watchingFileDialog = false;
         //capture but process message normally
-    } else if (message == WM_GETICON && nullptr != fileDialogHookHelper && nullptr != fileDialogHandle) {
-        fileDialogHookHelper->subClassFileDialog(this, fileDialogHandle);
+    } else if (message == WM_GETICON && nullptr != fileDialogHookHelper && nullptr != fileDialogHookHelper->fileDialogHandle) {
+        fileDialogHookHelper->subClassFileDialog(this);
     }
 
     if (message == WM_NCLBUTTONDOWN && wParam == HTCAPTION && !m_pMVRSR) {
@@ -20822,7 +21173,7 @@ bool CMainFrame::OpenBD(CString Path)
 {
     CHdmvClipInfo ClipInfo;
     CString strPlaylistFile;
-    CAtlList<CHdmvClipInfo::PlaylistItem> MainPlaylist;
+    CHdmvClipInfo::HdmvPlaylist MainPlaylist;
 
 #if INTERNAL_SOURCEFILTER_MPEG
     const CAppSettings& s = AfxGetAppSettings();
@@ -20849,6 +21200,8 @@ bool CMainFrame::OpenBD(CString Path)
         }
         if (SUCCEEDED(ClipInfo.FindMainMovie(Path, strPlaylistFile, MainPlaylist, m_MPLSPlaylist))) {
             m_bIsBDPlay = true;
+
+            m_bHasBDMeta = ClipInfo.ReadMeta(Path, m_BDMeta);
 
             if (!InternalMpegSplitter && !ext.IsEmpty() && ext == _T(".bdmv")) {
                 return false;
@@ -21048,31 +21401,20 @@ GUID CMainFrame::GetTimeFormat()
 
 void CMainFrame::UpdateDXVAStatus()
 {
-    CString DXVADecoderDescription = GetDXVADecoderDescription();
-    m_bUsingDXVA = (_T("Not using DXVA") != DXVADecoderDescription && _T("Unknown") != DXVADecoderDescription);
     CString DXVAInfo;
-    // If LAV Video is in the graph, we query it since it's always more reliable than the hook.
+    // We only support getting info from LAV Video Decoder is that is what will be used 99% of the time
     if (CComQIPtr<ILAVVideoStatus> pLAVVideoStatus = FindFilter(GUID_LAVVideo, m_pGB)) {
         const LPCWSTR decoderName = pLAVVideoStatus->GetActiveDecoderName();
-        ASSERT(decoderName != nullptr);
-        if (decoderName != nullptr && wcscmp(decoderName, L"avcodec") != 0 && wcscmp(decoderName, L"wmv9 mft") != 0 && wcscmp(decoderName, L"msdk mvc") != 0) {
+        if (decoderName == nullptr || wcscmp(decoderName, L"avcodec") == 0 || wcscmp(decoderName, L"wmv9 mft") == 0 || wcscmp(decoderName, L"msdk mvc") == 0) {
+            DXVAInfo = _T("H/W Decoder  : None");
+        } else {
+            m_bUsingDXVA = true;
             m_HWAccelType = CFGFilterLAVVideo::GetUserFriendlyDecoderName(decoderName);
-            CString LAVDXVAInfo;
-            LAVDXVAInfo.Format(_T("LAV Video Decoder (%s)"), m_HWAccelType);
-
-            if (!m_bUsingDXVA) { // Don't trust the hook
-                m_bUsingDXVA = true;
-                DXVAInfo.Format(_T("H/W Decoder  : %s"), LAVDXVAInfo.GetString());
-            } else {
-                DXVAInfo.AppendFormat(_T(" [%s]"), LAVDXVAInfo.GetString());
-            }
+            DXVAInfo.Format(_T("H/W Decoder  : %s"), m_HWAccelType);
         }
+    } else {
+        DXVAInfo = _T("H/W Decoder  : None / Unknown");
     }
-    if (DXVAInfo.IsEmpty()) {
-        m_HWAccelType = GetDXVAVersion();
-        DXVAInfo.Format(_T("%-13s: %s"), m_HWAccelType, DXVADecoderDescription.GetString());
-    }
-
     GetRenderersData()->m_strDXVAInfo = DXVAInfo;
 }
 
@@ -21124,11 +21466,10 @@ void CMainFrame::UpdateSubtitleRenderingParameters()
         }
 
         if (pRTS->m_subtitleType == Subtitle::ASS || pRTS->m_subtitleType == Subtitle::SSA) {
-            if (!s.fUseDefaultSubtitlesStyle && szVideoFrame.cx > 0) {
+            if (szVideoFrame.cx > 0) {
                 if (pRTS->m_layoutRes.cx == 0 || pRTS->m_layoutRes.cy == 0) {
                     bChangeStorageRes = (pRTS->m_storageRes != szVideoFrame);
                 } else {
-
                     bChangeStorageRes = (pRTS->m_storageRes != pRTS->m_layoutRes);
                 }
             }
@@ -21147,6 +21488,7 @@ void CMainFrame::UpdateSubtitleRenderingParameters()
                 pRTS->m_ePARCompensationType = CSimpleTextSubtitle::EPARCompensationType::EPCTAccurateSize_ISR;
                 pRTS->m_dPARCompensation = dPARCompensation;
             }
+
             STSStyle style = s.subtitlesDefStyle;
             if (pRTS->m_bUsingPlayerDefaultStyle) {
                 pRTS->SetDefaultStyle(style);
@@ -21154,7 +21496,7 @@ void CMainFrame::UpdateSubtitleRenderingParameters()
                 style.relativeTo = s.subtitlesDefStyle.relativeTo;
                 pRTS->SetDefaultStyle(style);
             }
-            pRTS->SetOverride(s.fUseDefaultSubtitlesStyle, s.subtitlesDefStyle);
+            pRTS->SetOverride(s.bSubtitleOverrideDefaultStyle, s.bSubtitleOverrideAllStyles, s.subtitlesDefStyle);
             pRTS->SetAlignment(s.fOverridePlacement, s.nHorPos, s.nVerPos);
             pRTS->SetUseFreeType(s.bUseFreeType);
             pRTS->SetOpenTypeLangHint(s.strOpenTypeLangHint);
@@ -21257,7 +21599,7 @@ LRESULT CMainFrame::OnLoadSubtitles(WPARAM wParam, LPARAM lParam)
 
     CAutoPtr<CRenderedTextSubtitle> pRTS(DEBUG_NEW CRenderedTextSubtitle(&m_csSubLock));
     if (pRTS) {
-        if (pRTS->Open(CString(data.pSubtitlesInfo->Provider()->Name().c_str()),
+        if (pRTS->Open(CString(data.pSubtitlesInfo->Provider()->DisplayName().c_str()),
             (BYTE*)(LPCSTR)data.fileContents.c_str(), (int)data.fileContents.length(), DEFAULT_CHARSET,
             UTF8To16(data.fileName.c_str()), Subtitle::HearingImpairedType(data.pSubtitlesInfo->hearingImpaired),
             ISOLang::ISO6391ToLcid(data.pSubtitlesInfo->languageCode.c_str())) && pRTS->GetStreamCount() > 0) {
@@ -21426,6 +21768,7 @@ bool CMainFrame::ProcessYoutubeDLURL(CString url, bool append, bool replace)
     CAtlList<CString> filenames;
     CYoutubeDLInstance ydl;
     CYoutubeDLInstance::YDLPlaylistInfo listinfo;
+    CString useragent;
 
     m_sydlLastProcessURL = url;
 
@@ -21434,7 +21777,7 @@ bool CMainFrame::ProcessYoutubeDLURL(CString url, bool append, bool replace)
     if (!ydl.Run(url)) {
         return false;
     }
-    if (!ydl.GetHttpStreams(streams, listinfo)) {
+    if (!ydl.GetHttpStreams(streams, listinfo, useragent)) {
         return false;
     }
 
@@ -21486,30 +21829,30 @@ bool CMainFrame::ProcessYoutubeDLURL(CString url, bool append, bool replace)
         }
         title.Format(_T("%s%s%s"), static_cast<LPCWSTR>(epiid), static_cast<LPCWSTR>(season), static_cast<LPCWSTR>(title));
         if (i == 0) f_title = title;
+
+        CString ydl_src = stream.webpage_url.IsEmpty() ? url : stream.webpage_url;
+        if (i == 0) m_sydlLastProcessURL = ydl_src;
+
         int targetlen = title.GetLength() > 100 ? 50 : 150 - title.GetLength();
-        CString short_url;
-        if (streams.GetCount() > 1 && !stream.webpage_url.IsEmpty()) {
-            short_url = ShortenURL(stream.webpage_url, targetlen, true);
-        } else {
-            short_url = ShortenURL(url, targetlen, true);
-        }
-        CString ydl_src = url;
-        if (url == filenames.GetHead()) {
+        CString short_url = ShortenURL(ydl_src, targetlen, true);
+        
+        if (ydl_src == filenames.GetHead()) {
             // Processed URL is same as input, can happen for DASH manifest files. Clear source URL to avoid reprocessing.
             ydl_src = _T("");
         }
+
         if (replace) {
-            m_wndPlaylistBar.ReplaceCurrentItem(filenames, nullptr, title + " (" + short_url + ")", ydl_src, _T(""), &stream.subtitles);
+            m_wndPlaylistBar.ReplaceCurrentItem(filenames, nullptr, title + " (" + short_url + ")", ydl_src, useragent, _T(""), &stream.subtitles);
             break;
         } else {
-            m_wndPlaylistBar.Append(filenames, false, nullptr, title + " (" + short_url + ")", ydl_src, _T(""), &stream.subtitles);
+            m_wndPlaylistBar.Append(filenames, false, nullptr, title + " (" + short_url + ")", ydl_src, useragent, _T(""), &stream.subtitles);
         }
     }
 
     if (s.fKeepHistory) {
         auto* mru = &s.MRU;
         RecentFileEntry r;
-        mru->LoadMediaHistoryEntryFN(url, r);
+        mru->LoadMediaHistoryEntryFN(m_sydlLastProcessURL, r);
         if (streams.GetCount() > 1) {
             auto h = streams.GetHead();
             if (!h.series.IsEmpty()) {
@@ -21545,7 +21888,8 @@ bool CMainFrame::DownloadWithYoutubeDL(CString url, CString filename)
     STARTUPINFO startup_info;
     const auto& s = AfxGetAppSettings();
 
-    CString args = _T("\"") + GetYDLExePath() + _T("\" --console-title \"") + url + _T("\"");
+    bool ytdlp = true;
+    CString args = _T("\"") + GetYDLExePath(&ytdlp) + _T("\" --console-title \"") + url + _T("\"");
     if (!s.sYDLCommandLine.IsEmpty()) {
         args.Append(_T(" "));
         args.Append(s.sYDLCommandLine);
@@ -21609,6 +21953,11 @@ void CMainFrame::OnMouseHWheel(UINT nFlags, short zDelta, CPoint pt) {
     __super::OnMouseHWheel(nFlags, zDelta, pt);
 }
 
+CHdmvClipInfo::BDMVMeta CMainFrame::GetBDMVMeta()
+{
+    return m_BDMeta.GetHead();
+}
+
 BOOL CMainFrame::AppendMenuEx(CMenu& menu, UINT nFlags, UINT nIDNewItem, CString& text)
 {
     text.Replace(_T("&"), _T("&&"));
@@ -21643,6 +21992,16 @@ CString CMainFrame::getBestTitle(bool fTitleBarTextTitle) {
             return title;
         }
     }
+
+    CStringW ext = GetFileExt(GetFileName());
+    if (ext == ".mpls" && m_bHasBDMeta) {
+        title = GetBDMVMeta().title;
+        return title;
+    } else if (ext != ".mpls") {
+        m_bHasBDMeta = false;
+        m_BDMeta.RemoveAll();
+    }
+
     return L"";
 }
 
