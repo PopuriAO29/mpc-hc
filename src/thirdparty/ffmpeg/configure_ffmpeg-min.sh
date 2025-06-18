@@ -28,7 +28,6 @@ configure() {
     --disable-avformat \
     --disable-avdevice \
     --disable-devices \
-    --disable-postproc \
     --disable-swscale \
     --enable-filter=abuffer,abuffersink,atempo,aresample \
     --arch=${arch}"
@@ -44,7 +43,7 @@ configure() {
   EXTRA_CFLAGS="${EXTRA_CFLAGS} -I../../../zlib"
   EXTRA_CFLAGS="${EXTRA_CFLAGS} -I../../../soxr/libsoxr/src"
 
-  sh ${LAVSRCDIR}ffmpeg/configure ${TOOLCHAIN} --x86asmexe=yasm ${OPTIONS} --extra-cflags="${EXTRA_CFLAGS}" --extra-ldflags="${EXTRA_LDFLAGS}"
+  sh ${LAVSRCDIR}ffmpeg/configure ${TOOLCHAIN} --x86asmexe=nasm ${OPTIONS} --extra-cflags="${EXTRA_CFLAGS}" --extra-ldflags="${EXTRA_LDFLAGS}"
 }
 
 pushd tmp/64

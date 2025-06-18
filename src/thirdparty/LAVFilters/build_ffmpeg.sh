@@ -83,7 +83,6 @@ configure() {
     --disable-bsfs                  \
     --enable-bsf=extract_extradata  \
     --disable-avdevice              \
-    --disable-postproc              \
     --disable-encoders              \
     --disable-devices               \
     --disable-programs              \
@@ -149,7 +148,7 @@ configure() {
   fi
 
   echo tc=${TOOLCHAIN}
-  sh ../../../ffmpeg/configure ${TOOLCHAIN} --x86asmexe=yasm --extra-ldflags="${EXTRA_LDFLAGS}" --extra-cflags="${EXTRA_CFLAGS}" --pkg-config-flags="--static ${PKG_CONFIG_PREFIX_DIR}" ${OPTIONS}
+  sh ../../../ffmpeg/configure ${TOOLCHAIN} --x86asmexe=nasm --extra-ldflags="${EXTRA_LDFLAGS}" --extra-cflags="${EXTRA_CFLAGS}" --pkg-config-flags="--static ${PKG_CONFIG_PREFIX_DIR}" ${OPTIONS}
 }
 
 build() {
