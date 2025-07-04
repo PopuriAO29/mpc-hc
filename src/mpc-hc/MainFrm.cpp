@@ -414,8 +414,8 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_UPDATE_COMMAND_UI_RANGE(ID_PANNSCAN_PRESETS_START, ID_PANNSCAN_PRESETS_END, OnUpdateViewPanNScanPresets)
     ON_COMMAND_RANGE(ID_PANSCAN_ROTATEXP, ID_PANSCAN_ROTATEZM, OnViewRotate)
     ON_UPDATE_COMMAND_UI_RANGE(ID_PANSCAN_ROTATEXP, ID_PANSCAN_ROTATEZM, OnUpdateViewRotate)
-    ON_COMMAND_RANGE(ID_PANSCAN_ROTATEZ270, ID_PANSCAN_ROTATEZ270, OnViewRotate)
-    ON_UPDATE_COMMAND_UI_RANGE(ID_PANSCAN_ROTATEZ270, ID_PANSCAN_ROTATEZ270, OnUpdateViewRotate)
+    ON_COMMAND_RANGE(ID_PANSCAN_ROTATEZ270_OLD, ID_PANSCAN_ROTATEZ270_OLD, OnViewRotate)
+    ON_COMMAND_RANGE(ID_PANSCAN_ROTATEZP2, ID_PANSCAN_ROTATEZP2, OnViewRotate)
     ON_COMMAND_RANGE(ID_ASPECTRATIO_START, ID_ASPECTRATIO_END, OnViewAspectRatio)
     ON_UPDATE_COMMAND_UI_RANGE(ID_ASPECTRATIO_START, ID_ASPECTRATIO_END, OnUpdateViewAspectRatio)
     ON_COMMAND(ID_ASPECTRATIO_NEXT, OnViewAspectRatioNext)
@@ -2932,6 +2932,8 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
 #endif
         return E_INVALIDARG;
     }
+
+    CAutoLock ga(&lockGraphAccess);
 
     HRESULT hr = S_OK;
     LONG evCode = 0;
@@ -6714,7 +6716,7 @@ void CMainFrame::SubtitlesSave(const TCHAR* directory, bool silent)
 
             isSaved = pRTS->SaveAs(
                 suggestedFileName, type, m_pCAP->GetFPS(), m_pCAP->GetSubtitleDelay(),
-                CTextFile::DEFAULT_ENCODING, s.bSubSaveExternalStyleFile);
+                pRTS->m_encoding, s.bSubSaveExternalStyleFile);
         } else {
             const std::vector<Subtitle::SubType> types = {
                 Subtitle::SRT,
@@ -8550,13 +8552,14 @@ void CMainFrame::OnViewRotate(UINT nID)
             m_AngleZ = 0;
         }
         break;
-    case ID_PANSCAN_ROTATEZP:
+    case ID_PANSCAN_ROTATEZP2:
         if (!m_pCAP3) {
             m_AngleZ += 2;
             break;
         }
         [[fallthrough]];
     case ID_PANSCAN_ROTATEZ270:
+    case ID_PANSCAN_ROTATEZ270_OLD:
         if (m_AngleZ < 90) {
             m_AngleZ = 90;
         } else if (m_AngleZ >= 270) {
@@ -11580,6 +11583,8 @@ OAFilterState CMainFrame::GetMediaState()
 
 OAFilterState CMainFrame::UpdateCachedMediaState()
 {
+    CAutoLock ga(&lockGraphAccess);
+
     if (m_eMediaLoadState == MLS::LOADED) {
         m_CachedFilterState = -1;
         m_pMC->GetState(0, &m_CachedFilterState);
@@ -12346,18 +12351,31 @@ void CMainFrame::MoveVideoWindow(bool fShowStats/* = false*/, bool bSetStoppedVi
             double dScaledVRWidth  = m_ZoomX * dVRWidth;
             double dScaledVRHeight = m_ZoomY * dVRHeight;
 
-            auto vertAlign = AfxGetAppSettings().iVerticalAlignVideo;
             double vertAlignOffset = 0;
-            if (vertAlign == CAppSettings::verticalAlignVideoType::ALIGN_TOP) {
-                vertAlignOffset = -(dWRHeight - dScaledVRHeight) / 2;
-            } else if (vertAlign == CAppSettings::verticalAlignVideoType::ALIGN_BOTTOM) {
-                vertAlignOffset = (dWRHeight - dScaledVRHeight) / 2;
+            if (dWRHeight > dScaledVRHeight) {
+                auto vertAlign = AfxGetAppSettings().iVerticalAlignVideo;
+                if (vertAlign == CAppSettings::verticalAlignVideoType::ALIGN_TOP) {
+                    vertAlignOffset = -(dWRHeight - dScaledVRHeight) / 2.0;
+                } else if (vertAlign == CAppSettings::verticalAlignVideoType::ALIGN_BOTTOM) {
+                    vertAlignOffset = (dWRHeight - dScaledVRHeight) / 2.0;
+                }
             }
 
             // Position video frame
             // left and top parts are allowed to be negative
-            videoRect.left   = lround(m_PosX * (dWRWidth * 3.0 - dScaledVRWidth) - dWRWidth);
-            videoRect.top    = lround(m_PosY * (dWRHeight * 3.0 - dScaledVRHeight) - dWRHeight + vertAlignOffset);
+            if (dScaledVRWidth <= 2.5 * dWRWidth) {
+                videoRect.left = lround(m_PosX * (dWRWidth * 3.0 - dScaledVRWidth) - dWRWidth);
+            } else {
+                double dWDiff = dWRWidth - dScaledVRWidth;
+                videoRect.left = lround(((1.5 - m_PosX) * dWDiff) / 2.0);
+            }
+            if (dScaledVRHeight <= 2.5 * dWRHeight) {
+                videoRect.top  = lround(m_PosY * (dWRHeight * 3.0 - dScaledVRHeight) - dWRHeight + vertAlignOffset);
+            } else {
+                double dHDiff = dWRHeight - dScaledVRHeight;
+                videoRect.top  = lround(((1.5 - m_PosY) * dHDiff) / 2.0 + vertAlignOffset);
+            }
+
             // right and bottom parts are always at picture center or beyond, so never negative
             videoRect.right  = lround(videoRect.left + dScaledVRWidth);
             videoRect.bottom = lround(videoRect.top  + dScaledVRHeight);
@@ -12461,10 +12479,7 @@ void CMainFrame::SetPreviewVideoPosition() {
             w = int(minw + (maxw - minw) * scale);
             h = MulDiv(w, arxy.cy, arxy.cx);
         }
-
-        const CPoint pos(int(m_PosX * (wr.Width() * 3 - w) - wr.Width()), int(m_PosY * (wr.Height() * 3 - h) - wr.Height()));
-        const CRect vr(pos, CSize(w, h));
-        
+     
         if (m_pMFVDC_preview) {
             m_pMFVDC_preview->SetVideoPosition(nullptr, wr);
             m_pMFVDC_preview->SetAspectRatioMode(MFVideoARMode_PreservePicture);
@@ -12476,10 +12491,9 @@ void CMainFrame::SetPreviewVideoPosition() {
         if (m_pCAP2_preview) {
             m_pCAP2_preview->SetPosition(wr, wr);
         }
-
         if (m_pBV_preview) {
             m_pBV_preview->SetDefaultSourcePosition();
-            m_pBV_preview->SetDestinationPosition(vr.left, vr.top, vr.Width(), vr.Height());
+            m_pBV_preview->SetDestinationPosition(0, 0, w, h);
         }
         if (m_pVW_preview) {
             m_pVW_preview->SetWindowPosition(wr.left, wr.top, wr.Width(), wr.Height());
@@ -19272,6 +19286,8 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     m_bSettingUpMenus = true;
     SetLoadState(MLS::CLOSING);
 
+    CAutoLock ga(&lockGraphAccess);
+
     if (m_pGB_preview) {
         PreviewWindowHide();
         m_bUseSeekPreview = false;
@@ -20276,28 +20292,28 @@ void CMainFrame::SendSubtitleTracksToApi()
             if (m_pDVDI && SUCCEEDED(m_pDVDI->GetCurrentSubpicture(&ulStreamsAvailable, &ulCurrentStream, &bIsDisabled))
                 && ulStreamsAvailable > 0) {
                 LCID DefLanguage;
-                int i = 0, iSelected = -1;
+                int iSelected = -1;
 
                 DVD_SUBPICTURE_LANG_EXT ext;
                 if (FAILED(m_pDVDI->GetDefaultSubpictureLanguage(&DefLanguage, &ext))) {
                     return;
                 }
 
-                for (i = 0; i < ulStreamsAvailable; i++) {
+                for (ULONG i = 0; i < ulStreamsAvailable; i++) {
                     LCID Language;
                     if (FAILED(m_pDVDI->GetSubpictureLanguage(i, &Language))) {
                         continue;
                     }
 
                     if (i == ulCurrentStream) {
-                        iSelected = i;
+                        iSelected = (int)i;
                     }
 
                     CString str;
                     if (Language) {
                         GetLocaleString(Language, LOCALE_SENGLANGUAGE, str);
                     } else {
-                        str.Format(IDS_AG_UNKNOWN, i + 1);
+                        str.Format(IDS_AG_UNKNOWN, int(i + 1));
                     }
 
                     DVD_SubpictureAttributes ATR;
@@ -21955,6 +21971,9 @@ bool CMainFrame::CanSendToYoutubeDL(const CString url)
         int p = baseurl.ReverseFind(_T('.'));
         if (p > 0 && (q - p <= 6)) {
             CString ext = baseurl.Mid(p);
+            if (ext == L".m3u8" || ext == L".mpd") {
+                return false;
+            }
             if (AfxGetAppSettings().m_Formats.FindExt(ext)) {
                 return false;
             }
