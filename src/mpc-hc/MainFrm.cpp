@@ -810,6 +810,7 @@ CMainFrame::CMainFrame()
     , m_nLastSkipDirection(0)
     , m_fCustomGraph(false)
     , m_fShockwaveGraph(false)
+    , m_iGraphID(0)
     , m_fFrameSteppingActive(false)
     , m_nStepForwardCount(0)
     , m_rtStepForwardStart(0)
@@ -1263,7 +1264,9 @@ void CMainFrame::OnClose()
 
     SendAPICommand(CMD_DISCONNECT, L"\0");  // according to CMD_NOTIFYENDOFSTREAM (ctrl+f it here), you're not supposed to send NULL here
 
+    lockGraphAccess.Lock();
     AfxGetMyApp()->SetClosingState();
+    lockGraphAccess.Unlock();
 
     __super::OnClose();
 }
@@ -2921,19 +2924,26 @@ void CMainFrame::GraphEventComplete()
 
 LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
 {
-    if (wParam != 0 || lParam != 0x4B00B1E5) {
-        ASSERT(false);
-#if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
-        if (!AfxGetMyApp()->m_fClosingState && m_pME && !m_fOpeningAborted) {
-            if (CrashReporter::IsEnabled()) {
-                throw 1;
-            }
-        }
-#endif
+    if (wParam != 0) {
         return E_INVALIDARG;
     }
 
-    CAutoLock ga(&lockGraphAccess);
+    if (AfxGetMyApp()->m_fClosingState) {
+        return S_OK;
+    }
+
+    lockGraphAccess.Lock();
+
+    if (AfxGetMyApp()->m_fClosingState) {
+        ASSERT(false);
+        return S_OK;
+    }
+
+    if (lParam != m_iGraphID) {
+        lockGraphAccess.Unlock();
+        ASSERT(false);
+        return E_INVALIDARG;
+    }
 
     HRESULT hr = S_OK;
     LONG evCode = 0;
@@ -2941,7 +2951,7 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
     while (!AfxGetMyApp()->m_fClosingState && m_pME && !m_fOpeningAborted && (GetLoadState() == MLS::LOADED || GetLoadState() == MLS::LOADING) && SUCCEEDED(m_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
 #ifdef _DEBUG
         if (evCode != EC_DVD_CURRENT_HMSF_TIME) {
-            TRACE(_T("--> CMainFrame::OnGraphNotify on thread: %lu; event: 0x%08x (%ws)\n"), GetCurrentThreadId(), evCode, GetEventString(evCode));
+            TRACE(_T("--> CMainFrame::OnGraphNotify on thread: %lu; id: %ld; event: 0x%08x (%ws)\n"), GetCurrentThreadId(), lParam, evCode, GetEventString(evCode));
         }
 #endif
         CString str;
@@ -3293,7 +3303,6 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                     SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
                     m_closingmsg = !str.IsEmpty() ? str : CString(_T("Unspecified graph error"));
                     m_wndPlaylistBar.SetCurValid(false);
-                    return hr;
                 }
                 break;
             case EC_DVD_PLAYBACK_RATE_CHANGE:
@@ -3332,6 +3341,10 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 TRACE(_T("Unhandled graph event\n"));
         }
     }
+
+    if (!AfxGetMyApp()->m_fClosingState) {
+        lockGraphAccess.Unlock();
+    }    
 
     return hr;
 }
@@ -11386,6 +11399,7 @@ void CMainFrame::SetDefaultWindowRect(int iMonitor)
     CSize windowSize;
     bool tRememberPos = s.fRememberWindowPos;
     MINMAXINFO mmi;
+    ZeroMemory(&mmi, sizeof(mmi));
     OnGetMinMaxInfo(&mmi);
 
     if (s.HasFixedWindowSize()) {
@@ -11583,8 +11597,6 @@ OAFilterState CMainFrame::GetMediaState()
 
 OAFilterState CMainFrame::UpdateCachedMediaState()
 {
-    CAutoLock ga(&lockGraphAccess);
-
     if (m_eMediaLoadState == MLS::LOADED) {
         m_CachedFilterState = -1;
         m_pMC->GetState(0, &m_CachedFilterState);
@@ -13185,6 +13197,7 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
 
     m_fCustomGraph = false;
     m_fShockwaveGraph = false;
+    m_iGraphID++;
 
     const CAppSettings& s = AfxGetAppSettings();
 
@@ -13300,7 +13313,7 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
         throw (UINT)IDS_GRAPH_INTERFACES_ERROR;
     }
 
-    if (FAILED(m_pME->SetNotifyWindow((OAHWND)m_hWnd, WM_GRAPHNOTIFY, 0x4B00B1E5))) {
+    if (FAILED(m_pME->SetNotifyWindow((OAHWND)m_hWnd, WM_GRAPHNOTIFY, (LPARAM)m_iGraphID))) {
         throw (UINT)IDS_GRAPH_TARGET_WND_ERROR;
     }
 
@@ -18527,10 +18540,6 @@ bool CMainFrame::BuildToCapturePreviewPin(
 
 bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPreview, bool fACapture)
 {
-    if (!m_pCGB) {
-        return false;
-    }
-
     OAFilterState fs = GetMediaState();
 
     if (fs != State_Stopped) {
@@ -18653,7 +18662,7 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
         }
 
         m_pAMDF.Release();
-        if (FAILED(m_pCGB->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video, m_pVidCap, IID_PPV_ARGS(&m_pAMDF)))) {
+        if (m_pCGB && FAILED(m_pCGB->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video, m_pVidCap, IID_PPV_ARGS(&m_pAMDF)))) {
             TRACE(_T("Warning: No IAMDroppedFrames interface for vidcap capture"));
         }
     }
@@ -18710,7 +18719,9 @@ bool CMainFrame::BuildGraphVideoAudio(int fVPreview, bool fVCapture, int fAPrevi
     }
 
     REFERENCE_TIME stop = MAX_TIME;
-    hr = m_pCGB->ControlStream(&PIN_CATEGORY_CAPTURE, nullptr, nullptr, nullptr, &stop, 0, 0); // stop in the infinite
+    if (m_pCGB) {
+        hr = m_pCGB->ControlStream(&PIN_CATEGORY_CAPTURE, nullptr, nullptr, nullptr, &stop, 0, 0); // stop in the infinite
+    }
 
     CleanGraph();
 
@@ -19083,9 +19094,13 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
         return;
     }
 
+    m_iGraphID++;
     if (m_pME) {
+        m_pME->SetNotifyFlags(AM_MEDIAEVENT_NONOTIFY);
         m_pME->SetNotifyWindow(NULL, 0, 0);
     }
+
+    CAutoLock ga(&lockGraphAccess);
 
     m_media_trans_control.close();
 
@@ -19100,6 +19115,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
         // abort sub search
         m_pSubtitlesProviders->Abort(SubtitlesThreadType(STT_SEARCH | STT_DOWNLOAD));
         m_wndSubtitlesDownloadDialog.DoClear();
+        m_wndSubtitlesDownloadDialog.ShowWindow(SW_HIDE);
 
         // save playback position
         if (s.fKeepHistory && !bPendingFileDelete) {
@@ -19286,8 +19302,6 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     m_bSettingUpMenus = true;
     SetLoadState(MLS::CLOSING);
 
-    CAutoLock ga(&lockGraphAccess);
-
     if (m_pGB_preview) {
         PreviewWindowHide();
         m_bUseSeekPreview = false;
@@ -19370,7 +19384,11 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
 #endif
                             msg = L"Timeout when closing preview filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                         } else {
-                            msg = L"Timeout when closing filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            if (m_pMVRS) {
+                                msg = L"Timeout when closing filter graph.\n\nIf this happens often, try one of these solutions:\n- Use MPC Video renderer instead of MadVR\n- Use AMD GPU driver 24.8.1 (or older)(newer ones have compatibility issue with MadVR)\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            } else {
+                                msg = L"Timeout when closing filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            }
                         }
                         if (IDYES == AfxMessageBox(msg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
                             processmsg = false;
@@ -21008,7 +21026,7 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
         ASSERT(false);
         return 0;
     }
-    if (message == WM_ACTIVATE || message == WM_SETFOCUS) {
+    if (message == WM_ACTIVATE || message == WM_SETFOCUS || message == WM_GETMINMAXINFO) {
         if (AfxGetMyApp()->m_fClosingState) {
             TRACE(_T("Dropped WindowProc: message %u value %d\n"), message, LOWORD(wParam));
             return 0;
