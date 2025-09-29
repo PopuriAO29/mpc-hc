@@ -430,10 +430,11 @@ struct DVD_POSITION {
 };
 
 struct ABRepeat {
-    ABRepeat() : positionA(0), positionB(0), dvdTitle(-1) {}
+    ABRepeat() : positionA(0), positionB(0), dvdTitle(-1), tcLastRepeat(0ULL) {}
     operator bool() const { return positionA || positionB; };
     REFERENCE_TIME positionA, positionB;
     ULONG dvdTitle; //whatever title they saved last will be the only one we remember
+    ULONGLONG tcLastRepeat;
 };
 
 class RecentFileEntry {
@@ -555,6 +556,7 @@ public:
     // cmdline params
     UINT64 nCLSwitches;
     CAtlList<CString>   slFiles, slDubs, slSubs, slFilters;
+    static std::map<DWORD, const wmcmd_base*> CommandIDToWMCMD;
 
     // Initial position (used by command line flags)
     REFERENCE_TIME      rtShift;
@@ -646,6 +648,26 @@ public:
     MOUSE_ASSIGNMENT MouseWheelDown;
     MOUSE_ASSIGNMENT MouseWheelLeft;
     MOUSE_ASSIGNMENT MouseWheelRight;
+
+    // Toolbar
+    UINT            nToolbarAction1;
+    UINT            nToolbarAction2;
+    UINT            nToolbarAction3;
+    UINT            nToolbarAction4;
+    UINT            nToolbarRightAction1;
+    UINT            nToolbarRightAction2;
+    UINT            nToolbarRightAction3;
+    UINT            nToolbarRightAction4;
+
+    enum TOOLBAR_TYPE {
+        INTERNAL_TOOLBAR = 0,
+        EXTERNAL_TOOLBAR_NO_16,
+        EXTERNAL_TOOLBAR_WITH_16,
+        INVALID_TOOLBAR = 0xFFFFFFFF
+    };
+
+    TOOLBAR_TYPE nToolbarType;
+    CStringW strToolbarName;
 
     // Logo
     int             nLogoId;
@@ -916,7 +938,6 @@ public:
     int             nCoverArtSizeLimit;
 
     bool            bEnableLogging;
-    bool            bUseLegacyToolbar;
 
     bool            IsD3DFullscreen() const;
     CString         SelectedAudioRenderer() const;

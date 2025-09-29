@@ -615,6 +615,22 @@ msgctxt "IDD_PPAGESHADERS"
 msgid "Playback::Shaders"
 msgstr "Reproducció::Shaders"
 
+msgctxt "IDD_PPAGETOOLBAR"
+msgid "Player::ToolBar"
+msgstr ""
+
+msgctxt "IDD_PPAGETOOLBARLAYOUT"
+msgid "Player::ToolBar Layout"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_AVAIL_BUTTONS"
+msgid "Available Buttons"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_CUR_BUTTONS"
+msgid "Current Buttons"
+msgstr ""
+
 msgctxt "IDD_FILEPROPRES"
 msgid "Resources"
 msgstr "Recursos"
@@ -1489,6 +1505,10 @@ msgstr ""
 msgctxt "IDS_AG_APP_COMMAND"
 msgid "App Command"
 msgstr "Ordre de l'aplicació"
+
+msgctxt "IDS_AG_BUILTIN_TOOLBAR"
+msgid "Built-in ToolBar"
+msgstr ""
 
 msgctxt "IDS_AG_MEDIAFILES"
 msgid "Media files (all types)"
@@ -4177,14 +4197,6 @@ msgctxt "IDS_PPAGE_FS_CLN_AUDIO_DELAY"
 msgid "Audio Delay (ms)"
 msgstr "Retard de l'àudio (ms)"
 
-msgctxt "IDS_PPAGEADVANCED_DEFAULTTOOLBARSIZE"
-msgid "Size in pixels of the default toolbar."
-msgstr "Mida en píxels de la barra d'eines per defecte."
-
-msgctxt "IDS_PPAGEADVANCED_USE_LEGACY_TOOLBAR"
-msgid "Use legacy toolbar instead of new vectorized one."
-msgstr "Utilitza la barra antiga d'eines en lloc de la nova vectoritzada."
-
 msgctxt "IDS_SUBMENU_COPYURL"
 msgid "Copy URL"
 msgstr "Copia l'URL"
@@ -4692,20 +4704,6 @@ msgstr ""
 "Torna a reproduir el primer fitxer de la carpeta després de reproduir-ne "
 "l'últim."
 
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBAR"
-msgid ""
-"Requires Dark Theme. When enabled, the time seekbar and volume indicator "
-"don't show a dragger at current position, but instead are filled from left "
-"to right."
-msgstr ""
-"Requereix el tema fosc. Quan està habilitat, la barra de desplaçament del "
-"temps i l'indicador de volum no mostren un arrossegament a la posició "
-"actual, sinó que s'omple d'esquerra a dreta."
-
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBARHEIGHT"
-msgid "Modern seekbar height (at 96dpi, otherwise scaled)"
-msgstr "Altura de la barra de cerca moderna (a 96ppp, del contrari escalada)"
-
 msgctxt "IDS_PPAGEADVANCED_FULLSCREEN_DELAY"
 msgid "Delay before showing fullscreen video, to prevent visual glitches."
 msgstr ""
@@ -4750,6 +4748,10 @@ msgstr "Activa post-redimensionament dels píxel shaders"
 msgctxt "IDS_PPAGEADVANCED_TIME_REFRESH_INTERVAL"
 msgid "Refresh interval (in milliseconds) of time in status bar"
 msgstr "Interval de refresc (en mil·lisegons) de temps a la barra d'estat"
+
+msgctxt "IDS_PPAGEADVANCED_SHOW_VOLUME_PERCENTAGE"
+msgid "Show percentage value on volume slider (in modern theme)"
+msgstr ""
 
 msgctxt "IDS_PPAGEADVANCED_SHOW_LANG_STATUSBAR"
 msgid "Display current audio and subtitle language in status bar"
@@ -4987,4 +4989,64 @@ msgstr "Per defecte"
 
 msgctxt "IDS_CMD_THUMBNAILS"
 msgid "/thumbnails\tCreate thumbnails"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION1"
+msgid "Custom Action 1"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION2"
+msgid "Custom Action 2"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION3"
+msgid "Custom Action 3"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION4"
+msgid "Custom Action 4"
+msgstr ""
+
+msgctxt "IDS_AUDIOS"
+msgid "Audio Track"
+msgstr ""
+
+msgctxt "IDS_SUBTITLES"
+msgid "Subtitle Track"
+msgstr ""
+
+msgctxt "IDS_AG_EXIT_FULLSCREEN"
+msgid "Exit Fullscreen"
+msgstr ""
+
+msgctxt "IDS_AG_SHOW_PLAYLIST"
+msgid "Show Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_HIDE_PLAYLIST"
+msgid "Hide Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_SHUFFLE"
+msgid "Enable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_SHUFFLE"
+msgid "Disable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_REPEAT"
+msgid "Enable Repeat"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_REPEAT"
+msgid "Disable Repeat"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_ON"
+msgid "Shuffle: On"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_OFF"
+msgid "Shuffle: Off"
 msgstr ""

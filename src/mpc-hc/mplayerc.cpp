@@ -350,6 +350,9 @@ CString GetContentType(CString fn, CAtlList<CString>* redir)
         }
         if (_tcsicmp(url.GetSchemeName(), _T("http")) == 0 || _tcsicmp(url.GetSchemeName(), _T("https")) == 0) {
             ishttp = true;
+            if (AfxGetMainFrame()->CanSendToYoutubeDL(fn)) {
+                return "ytdl";
+            }
         } else {
             return "";
         }
@@ -1377,6 +1380,33 @@ bool CMPlayerCApp::HasProfileEntry(LPCTSTR lpszSection, LPCTSTR lpszEntry)
     return ret;
 }
 
+std::vector<int> CMPlayerCApp::GetProfileVectorInt(CString strSection, CString strKey) {
+    std::vector<int> vData;
+    UINT uSize = theApp.GetProfileInt(strSection, strKey + _T("Size"), 0);
+    UINT uSizeRead = 0;
+    BYTE* temp = nullptr;
+    theApp.GetProfileBinary(strSection, strKey, &temp, &uSizeRead);
+    if (uSizeRead == uSize) {
+        vData.resize(uSizeRead / sizeof(int), 0);
+        memcpy(vData.data(), temp, uSizeRead);
+    }
+    delete[] temp;
+    temp = nullptr;
+    return vData;
+}
+
+
+void CMPlayerCApp::WriteProfileVectorInt(CString strSection, CString strKey, std::vector<int> vData) {
+    UINT uSize = static_cast<UINT>(sizeof(int) * vData.size());
+    theApp.WriteProfileBinary(
+        strSection,
+        strKey,
+        (LPBYTE)vData.data(),
+        uSize
+    );
+    theApp.WriteProfileInt(strSection, strKey + _T("Size"), uSize);
+}
+
 void CMPlayerCApp::PreProcessCommandLine()
 {
     m_cmdln.RemoveAll();
@@ -2094,7 +2124,7 @@ BOOL CMPlayerCApp::InitInstance()
     m_AudioRendererDisplayName_CL = _T("");
 
     if (!__super::InitInstance()) {
-        AfxMessageBox(_T("InitInstance failed!"));
+        MessageBoxW(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
         return FALSE;
     }
 
@@ -2104,14 +2134,20 @@ BOOL CMPlayerCApp::InitInstance()
     try {
         pFrame = DEBUG_NEW CMainFrame;
         if (!pFrame || !pFrame->LoadFrame(IDR_MAINFRAME, WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE, nullptr, nullptr)) {
-            MessageBox(nullptr, ResStr(IDS_FRAME_INIT_FAILED), m_pszAppName, MB_ICONERROR | MB_OK);
+            MessageBox(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
             return FALSE;
         }
     } catch (...) {
+        MessageBoxW(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
         return FALSE;
     }
 
     m_pMainWnd = pFrame;
+    if (!m_pMainWnd) {
+        MessageBoxW(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
+        return FALSE;
+    }
+
     pFrame->m_controls.LoadState();
     CPoint borderAdjustDirection;
     pFrame->SetDefaultWindowRect((m_s->nCLSwitches & CLSW_MONITOR) ? m_s->iMonitor : 0);

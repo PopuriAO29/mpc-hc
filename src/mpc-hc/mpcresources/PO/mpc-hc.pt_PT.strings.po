@@ -3,14 +3,15 @@
 # This file is distributed under the same license as the MPC-HC package.
 # Translators:
 # Hugo Simões <hugo.simoes.1984@gmail.com>, 2021
-# Hugo Carvalho <hugokarvalho@hotmail.com>, 2024
+# Blackspirits <blackspirits@gmail.com>, 2025
+# Hugo Carvalho <hugokarvalho@hotmail.com>, 2025
 # 
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2024-12-16 13:01:31+0000\n"
+"POT-Creation-Date: 2025-05-21 22:58:36+0000\n"
 "PO-Revision-Date: 2020-01-02 07:46+0000\n"
-"Last-Translator: Hugo Carvalho <hugokarvalho@hotmail.com>, 2024\n"
+"Last-Translator: Hugo Carvalho <hugokarvalho@hotmail.com>, 2025\n"
 "Language-Team: Portuguese (Portugal) (https://app.transifex.com/mpchc/teams/106126/pt_PT/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -606,6 +607,22 @@ msgstr "Filtros Externos"
 msgctxt "IDD_PPAGESHADERS"
 msgid "Playback::Shaders"
 msgstr "Reprodução::Shaders"
+
+msgctxt "IDD_PPAGETOOLBAR"
+msgid "Player::ToolBar"
+msgstr ""
+
+msgctxt "IDD_PPAGETOOLBARLAYOUT"
+msgid "Player::ToolBar Layout"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_AVAIL_BUTTONS"
+msgid "Available Buttons"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_CUR_BUTTONS"
+msgid "Current Buttons"
+msgstr ""
 
 msgctxt "IDD_FILEPROPRES"
 msgid "Resources"
@@ -1489,6 +1506,10 @@ msgctxt "IDS_AG_APP_COMMAND"
 msgid "App Command"
 msgstr "Comando de aplicação"
 
+msgctxt "IDS_AG_BUILTIN_TOOLBAR"
+msgid "Built-in ToolBar"
+msgstr ""
+
 msgctxt "IDS_AG_MEDIAFILES"
 msgid "Media files (all types)"
 msgstr "Ficheiros de media (todos os tipos)"
@@ -1753,6 +1774,9 @@ msgid ""
 "This only logs a few very specific things, such as DVB scanning, subtitle search, and yt-dlp data parsing.\n"
 "Do not enable this during normal use!"
 msgstr ""
+"Ativa o registo em ficheiro (requer reinício).\n"
+"Isto apenas regista algumas coisas muito específicas, tais como a digitalização DVB, a pesquisa de legendas e a análise de dados yt-dlp.\n"
+"Não ative isso durante o uso normal!"
 
 msgctxt "IDS_TIMER_REMAINING_TIME"
 msgid "Remaining time"
@@ -1962,7 +1986,7 @@ msgstr "Miniaturas guardadas com sucesso"
 
 msgctxt "IDS_MENU_VIDEO_STREAM"
 msgid "Vide&o Track"
-msgstr "Faixa de Víde&o"
+msgstr "Faixa do víde&o"
 
 msgctxt "IDS_MENU_VIDEO_ANGLE"
 msgid "Video Ang&le"
@@ -3158,7 +3182,7 @@ msgstr "Autor desconhecido. Contacte-nos se fez este logo!"
 
 msgctxt "IDS_NO_MORE_MEDIA"
 msgid "No more media in the current folder."
-msgstr "Não existem mais ficheiros de media na pasta atual."
+msgstr "Não existem mais ficheiros multimédia na pasta atual."
 
 msgctxt "IDS_FIRST_IN_FOLDER"
 msgid "The first file of the folder is already loaded."
@@ -4176,14 +4200,6 @@ msgctxt "IDS_PPAGE_FS_CLN_AUDIO_DELAY"
 msgid "Audio Delay (ms)"
 msgstr "Atraso de áudio (ms)"
 
-msgctxt "IDS_PPAGEADVANCED_DEFAULTTOOLBARSIZE"
-msgid "Size in pixels of the default toolbar."
-msgstr "Tamanho em pixeis da barra de ferramentas por defeito."
-
-msgctxt "IDS_PPAGEADVANCED_USE_LEGACY_TOOLBAR"
-msgid "Use legacy toolbar instead of new vectorized one."
-msgstr "Utilizar barra de ferramenta antiga em vez da nova vetorizada."
-
 msgctxt "IDS_SUBMENU_COPYURL"
 msgid "Copy URL"
 msgstr "Copiar URL"
@@ -4439,10 +4455,12 @@ msgid ""
 "Youtube-DL failed to launch. Make sure yt-dlp.exe or youtube-dl.exe is "
 "located in MPC-HC folder or in PATH."
 msgstr ""
+"Não foi possível iniciar o Youtube-DL. Certifique-se de que yt-dlp.exe ou "
+"youtube-dl.exe está localizado na pasta MPC-HC ou no CAMINHO."
 
 msgctxt "IDS_CONTROLS_YOUTUBEDL"
 msgid "Calling yt-dlp/youtube-dl..."
-msgstr ""
+msgstr "A chamar o yt-dlp/youtube-dl..."
 
 msgctxt "IDS_VERTICAL_ALIGN_VIDEO_TOP"
 msgid "Align Top"
@@ -4513,6 +4531,11 @@ msgid ""
 "-f bestvideo+bestaudio\n"
 "-o \"C:\\downloads\\%(title)s.%(ext)s"
 msgstr ""
+"Parâmetros da linha de comandos para descarregar (\"guardar uma cópia\") com o yt-dlp.exe (ou youtube-dl.exe)\n"
+"Exemplos:\n"
+"-f best[height<=1080]\n"
+"-f bestvideo+bestaudio\n"
+"-o \"C:\\downloads\\.%(title)s.%(ext)s"
 
 msgctxt "IDS_PPAGEADVANCED_SAVEIMAGE_POSITION"
 msgid "Include video position in filename"
@@ -4692,20 +4715,6 @@ msgid "Loop back to first file in folder after playing the last file."
 msgstr ""
 "Voltar para o primeiro ficheiro na pasta após reproduzir o último ficheiro."
 
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBAR"
-msgid ""
-"Requires Dark Theme. When enabled, the time seekbar and volume indicator "
-"don't show a dragger at current position, but instead are filled from left "
-"to right."
-msgstr ""
-"Requer tema escuro. Quando ativado, o tempo, a barra de busca e o indicador "
-"de volume não mostra um arrastador na posição atual, mas em vez disso são "
-"preenchidos da esquerda para a direita."
-
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBARHEIGHT"
-msgid "Modern seekbar height (at 96dpi, otherwise scaled)"
-msgstr "Altura da barra de busca moderna (a 96dpi, caso contrário é escalado)"
-
 msgctxt "IDS_PPAGEADVANCED_FULLSCREEN_DELAY"
 msgid "Delay before showing fullscreen video, to prevent visual glitches."
 msgstr ""
@@ -4751,6 +4760,10 @@ msgctxt "IDS_PPAGEADVANCED_TIME_REFRESH_INTERVAL"
 msgid "Refresh interval (in milliseconds) of time in status bar"
 msgstr ""
 "Intervalo de atualização (em milisegundos) do tempo na barra de estado"
+
+msgctxt "IDS_PPAGEADVANCED_SHOW_VOLUME_PERCENTAGE"
+msgid "Show percentage value on volume slider (in modern theme)"
+msgstr ""
 
 msgctxt "IDS_PPAGEADVANCED_SHOW_LANG_STATUSBAR"
 msgid "Display current audio and subtitle language in status bar"
@@ -4829,6 +4842,9 @@ msgid ""
 "Just the filename is enough in case it is located in same folder as MPC-HC.\n"
 "Leave empty to use default filename: yt-dlp.exe"
 msgstr ""
+"Caminho completo do executável yt-dlp (ou youtube-dl).\n"
+"Apenas o nome do ficheiro é suficiente, caso esteja localizado na mesma pasta que o MPC-HC.\n"
+"Deixe em branco para utilizar o nome de ficheiro predefinido: yt-dlp.exe"
 
 msgctxt "IDS_PPAGEADVANCED_YDL_SUBS_PREFERENCE"
 msgid ""
@@ -4993,3 +5009,63 @@ msgstr "Por defeito"
 msgctxt "IDS_CMD_THUMBNAILS"
 msgid "/thumbnails\tCreate thumbnails"
 msgstr "/thumbnails\tCriar miniaturas"
+
+msgctxt "IDS_CUSTOM_ACTION1"
+msgid "Custom Action 1"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION2"
+msgid "Custom Action 2"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION3"
+msgid "Custom Action 3"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION4"
+msgid "Custom Action 4"
+msgstr ""
+
+msgctxt "IDS_AUDIOS"
+msgid "Audio Track"
+msgstr ""
+
+msgctxt "IDS_SUBTITLES"
+msgid "Subtitle Track"
+msgstr ""
+
+msgctxt "IDS_AG_EXIT_FULLSCREEN"
+msgid "Exit Fullscreen"
+msgstr ""
+
+msgctxt "IDS_AG_SHOW_PLAYLIST"
+msgid "Show Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_HIDE_PLAYLIST"
+msgid "Hide Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_SHUFFLE"
+msgid "Enable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_SHUFFLE"
+msgid "Disable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_REPEAT"
+msgid "Enable Repeat"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_REPEAT"
+msgid "Disable Repeat"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_ON"
+msgid "Shuffle: On"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_OFF"
+msgid "Shuffle: Off"
+msgstr ""

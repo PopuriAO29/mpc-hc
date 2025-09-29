@@ -613,6 +613,22 @@ msgctxt "IDD_PPAGESHADERS"
 msgid "Playback::Shaders"
 msgstr "Wiedergabe::Shader"
 
+msgctxt "IDD_PPAGETOOLBAR"
+msgid "Player::ToolBar"
+msgstr ""
+
+msgctxt "IDD_PPAGETOOLBARLAYOUT"
+msgid "Player::ToolBar Layout"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_AVAIL_BUTTONS"
+msgid "Available Buttons"
+msgstr ""
+
+msgctxt "IDS_PPAGE_TOOLBAR_CUR_BUTTONS"
+msgid "Current Buttons"
+msgstr ""
+
 msgctxt "IDD_FILEPROPRES"
 msgid "Resources"
 msgstr "Ressourcen"
@@ -1500,6 +1516,10 @@ msgstr "Maus"
 msgctxt "IDS_AG_APP_COMMAND"
 msgid "App Command"
 msgstr "Anwendungsbefehl"
+
+msgctxt "IDS_AG_BUILTIN_TOOLBAR"
+msgid "Built-in ToolBar"
+msgstr ""
 
 msgctxt "IDS_AG_MEDIAFILES"
 msgid "Media files (all types)"
@@ -4178,16 +4198,6 @@ msgctxt "IDS_PPAGE_FS_CLN_AUDIO_DELAY"
 msgid "Audio Delay (ms)"
 msgstr "Audioverzögerung (ms)"
 
-msgctxt "IDS_PPAGEADVANCED_DEFAULTTOOLBARSIZE"
-msgid "Size in pixels of the default toolbar."
-msgstr "Gibt die Höhe der Standard-Toolbar in Pixeln an."
-
-msgctxt "IDS_PPAGEADVANCED_USE_LEGACY_TOOLBAR"
-msgid "Use legacy toolbar instead of new vectorized one."
-msgstr ""
-"Verwendet wieder die nicht-vektorisierte Standard-Toolbar (Neustart "
-"erforderlich)."
-
 msgctxt "IDS_SUBMENU_COPYURL"
 msgid "Copy URL"
 msgstr "URL kopieren"
@@ -4695,20 +4705,6 @@ msgstr ""
 "Gehe zurück zur ersten Datei in dem Ordner, nachdem die letzte Datei "
 "abgespielt wurde."
 
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBAR"
-msgid ""
-"Requires Dark Theme. When enabled, the time seekbar and volume indicator "
-"don't show a dragger at current position, but instead are filled from left "
-"to right."
-msgstr ""
-"Dunkles Thema erforderlich. Wenn aktiviert, wird die Zeitsuchleiste und der "
-"Lautstärkeindikator an der aktuellen Position keinen Regler angezeigt, "
-"stattdessen wird von links nach rechts aufgefüllt."
-
-msgctxt "IDS_PPAGEADVANCED_MODERNSEEKBARHEIGHT"
-msgid "Modern seekbar height (at 96dpi, otherwise scaled)"
-msgstr "Moderne Suchleistenhöhe (bei 96dpi, sonst skaliert)"
-
 msgctxt "IDS_PPAGEADVANCED_FULLSCREEN_DELAY"
 msgid "Delay before showing fullscreen video, to prevent visual glitches."
 msgstr ""
@@ -4753,6 +4749,10 @@ msgstr "Aktiviere Post-Resize Pixel Shaders"
 msgctxt "IDS_PPAGEADVANCED_TIME_REFRESH_INTERVAL"
 msgid "Refresh interval (in milliseconds) of time in status bar"
 msgstr "Aktualisierung des Zeitintervalls (in ms) in der Statusleiste"
+
+msgctxt "IDS_PPAGEADVANCED_SHOW_VOLUME_PERCENTAGE"
+msgid "Show percentage value on volume slider (in modern theme)"
+msgstr ""
 
 msgctxt "IDS_PPAGEADVANCED_SHOW_LANG_STATUSBAR"
 msgid "Display current audio and subtitle language in status bar"
@@ -4996,3 +4996,63 @@ msgstr "Standard"
 msgctxt "IDS_CMD_THUMBNAILS"
 msgid "/thumbnails\tCreate thumbnails"
 msgstr "/thumbnails\tVorschaubild erstellen"
+
+msgctxt "IDS_CUSTOM_ACTION1"
+msgid "Custom Action 1"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION2"
+msgid "Custom Action 2"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION3"
+msgid "Custom Action 3"
+msgstr ""
+
+msgctxt "IDS_CUSTOM_ACTION4"
+msgid "Custom Action 4"
+msgstr ""
+
+msgctxt "IDS_AUDIOS"
+msgid "Audio Track"
+msgstr ""
+
+msgctxt "IDS_SUBTITLES"
+msgid "Subtitle Track"
+msgstr ""
+
+msgctxt "IDS_AG_EXIT_FULLSCREEN"
+msgid "Exit Fullscreen"
+msgstr ""
+
+msgctxt "IDS_AG_SHOW_PLAYLIST"
+msgid "Show Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_HIDE_PLAYLIST"
+msgid "Hide Playlist"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_SHUFFLE"
+msgid "Enable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_SHUFFLE"
+msgid "Disable Shuffle"
+msgstr ""
+
+msgctxt "IDS_AG_ENABLE_REPEAT"
+msgid "Enable Repeat"
+msgstr ""
+
+msgctxt "IDS_AG_DISABLE_REPEAT"
+msgid "Disable Repeat"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_ON"
+msgid "Shuffle: On"
+msgstr ""
+
+msgctxt "IDS_SHUFFLE_OFF"
+msgid "Shuffle: Off"
+msgstr ""
