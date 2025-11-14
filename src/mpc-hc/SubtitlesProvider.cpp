@@ -348,6 +348,11 @@ bool OpenSubtitles2::NeedLogin()
     return false;
 }
 
+bool OpenSubtitles2::UseForAutoDownload()
+{
+    return !UserName().empty();
+}
+
 SRESULT OpenSubtitles2::Login(const std::string& sUserName, const std::string& sPassword)
 {
     SRESULT result = SR_FAILED;

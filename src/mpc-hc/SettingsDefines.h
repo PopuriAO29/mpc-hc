@@ -197,6 +197,7 @@
 #define IDS_RS_AUDIORENDERERTYPE            _T("AudioRendererType")
 #define IDS_RS_HIDECAPTIONMENU              _T("HideCaptionMenu")
 #define IDS_RS_HIDENAVIGATION               _T("HideNavigation")
+#define IDS_RS_HIDECAPTURESETTINGS          _T("HideCaptureSettings")
 #define IDS_RS_DEFAULTVIDEOFRAME            _T("DefaultVideoFrame")
 #define IDS_RS_REMEMBERWINDOWSIZE           _T("RememberWindowSize")
 #define IDS_RS_PANSCANZOOM                  _T("PanScanZoom")

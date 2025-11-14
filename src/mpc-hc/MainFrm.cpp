@@ -1250,13 +1250,18 @@ void CMainFrame::OnClose()
     s.dZoomX = m_ZoomX;
     s.dZoomY = m_ZoomY;
 
-    m_wndPlaylistBar.SavePlaylist();
-
     m_controls.SaveState();
 
     m_OSD.OnHide();
 
     ShowWindow(SW_HIDE);
+
+    if (GetMediaState() == State_Running) {
+        MediaControlPause(true);
+    }
+
+    m_wndPlaylistBar.SavePlaylist();
+    m_wndPlaylistBar.ClearExternalPlaylistIfInvalid();
 
     if (GetLoadState() == MLS::LOADED || GetLoadState() == MLS::LOADING) {
         CloseMedia();
@@ -1264,8 +1269,6 @@ void CMainFrame::OnClose()
 
     ASSERT(GetLoadState() == MLS::CLOSED);
     ASSERT(!m_bOpenMediaActive);
-
-    m_wndPlaylistBar.ClearExternalPlaylistIfInvalid();
 
     s.WinLircClient.DisConnect();
     s.UIceClient.DisConnect();
@@ -1467,6 +1470,11 @@ void CMainFrame::RecalcLayout(BOOL bNotify)
 
     CRect r;
     GetWindowRect(&r);
+    if (r.IsRectNull()) {
+        ASSERT(false);
+        return;
+    }
+
     MINMAXINFO mmi;
     ZeroMemory(&mmi, sizeof(mmi));
     OnGetMinMaxInfo(&mmi);
@@ -2781,8 +2789,12 @@ void CMainFrame::OnABRepeat(UINT nID) {
         REFERENCE_TIME pos = 0;
 
         if (playmode == PM_FILE && m_pMS) {
-            m_pMS->GetDuration(&rtDur);
-            havePos = SUCCEEDED(m_pMS->GetCurrentPosition(&pos));
+            if (SUCCEEDED(m_pMS->GetDuration(&rtDur))) {
+                havePos = SUCCEEDED(m_pMS->GetCurrentPosition(&pos)) && (rtDur >= pos);
+            }
+            if (!havePos && !abRepeat.positionA && !abRepeat.positionB) {
+                return;
+            }
         } else if (playmode == PM_DVD && m_pDVDI) {
             DVD_PLAYBACK_LOCATION2 Location;
             if (m_pDVDI->GetCurrentLocation(&Location) == S_OK) {
@@ -2808,12 +2820,8 @@ void CMainFrame::OnABRepeat(UINT nID) {
                 abRepeat.positionA = 0;
             } else if (havePos) {
                 abRepeat.positionA = pos;
-                if (abRepeat.positionA < rtDur) {
-                    if (abRepeat.positionB && abRepeat.positionA + 500 * 10000LL > abRepeat.positionB) {
-                        abRepeat.positionB = 0;
-                    }
-                } else {
-                    abRepeat.positionA = 0;
+                if (abRepeat.positionB && (abRepeat.positionA >= abRepeat.positionB || !m_fShockwaveGraph && abRepeat.positionA + 500 * 10000LL > abRepeat.positionB)) {
+                    abRepeat.positionB = 0;
                 }
             }
         } else if (nID == ID_PLAY_REPEAT_AB_MARK_B) {
@@ -2821,7 +2829,7 @@ void CMainFrame::OnABRepeat(UINT nID) {
                 abRepeat.positionB = 0;
             } else if (havePos) {
                 abRepeat.positionB = pos;
-                if (abRepeat.positionB > 0 && rtDur >= abRepeat.positionB && abRepeat.positionB >= abRepeat.positionA + 500 * 10000LL) {
+                if (m_fShockwaveGraph && abRepeat.positionB > abRepeat.positionA || abRepeat.positionB >= abRepeat.positionA + 500 * 10000LL) {
                     if (GetMediaState() == State_Running) {
                         PerformABRepeat(); //we just set loop point B, so we need to repeat right now
                     }
@@ -2840,13 +2848,15 @@ void CMainFrame::OnABRepeat(UINT nID) {
 }
 
 void CMainFrame::PerformABRepeat() {
-    ULONGLONG tcnow = GetTickCount64();
-    if (tcnow > abRepeat.tcLastRepeat + 500ULL) {
-        abRepeat.tcLastRepeat = tcnow;
-    } else {
-        // prevent endless loop
-        DisableABRepeat();
-        return;
+    if (!m_fShockwaveGraph) {
+        ULONGLONG tcnow = GetTickCount64();
+        if (tcnow > abRepeat.tcLastRepeat + 500ULL) {
+            abRepeat.tcLastRepeat = tcnow;
+        } else {
+            // prevent endless loop
+            DisableABRepeat();
+            return;
+        }
     }
 
     DoSeekTo(abRepeat.positionA, false);
@@ -3293,8 +3303,10 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
                 m_fAudioOnly = (size.cx <= 0 || size.cy <= 0);
                 OnVideoSizeChanged(bWasAudioOnly);
                 m_statusbarVideoSize.Format(_T("%dx%d"), size.cx, size.cy);
-                UpdateDXVAStatus();
-                CheckSelectedVideoStream();
+                if (m_eMediaLoadState == MLS::LOADED) {
+                    UpdateDXVAStatus();
+                    CheckSelectedVideoStream();
+                }
             }
             break;
             case EC_LENGTH_CHANGED: {
@@ -4139,11 +4151,12 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
         }
         else if (GetPlaybackMode() == PM_ANALOG_CAPTURE) {
             // show capture bar
-            if (!m_controls.ControlChecked(CMainFrameControls::Panel::CAPTURE)) {
-                m_controls.ToggleControl(CMainFrameControls::Panel::CAPTURE);
-            }
-            else {
-                ASSERT(FALSE);
+            if (!s.bHideCaptureSettings) {
+                if (!m_controls.ControlChecked(CMainFrameControls::Panel::CAPTURE)) {
+                    m_controls.ToggleControl(CMainFrameControls::Panel::CAPTURE);
+                } else {
+                    ASSERT(FALSE);
+                }
             }
         }
     }
@@ -6496,7 +6509,10 @@ void CMainFrame::OnFileSaveImage()
         } else {
             ext += s.strSnapshotExt;
         }
-        pdst.RenameExtension(ext);
+        if (!pdst.RenameExtension(ext)) {
+            ASSERT(false);
+            return;
+        }
     }
     CString path = (LPCTSTR)pdst;
     pdst.RemoveFileSpec();
@@ -6612,7 +6628,11 @@ void CMainFrame::OnFileSaveThumbnails()
         } else {
             ext += s.strSnapshotExt;
         }
-        pdst.RenameExtension(ext);
+        if (!pdst.RenameExtension(ext)) {
+            // ToDo: write helper functions for renaming that support long paths
+            ASSERT(false);
+            return;
+        }
     }
     CString path = (LPCTSTR)pdst;
     pdst.RemoveFileSpec();
@@ -8031,7 +8051,9 @@ void CMainFrame::OnUpdateViewNavigation(CCmdUI* pCmdUI)
 
 void CMainFrame::OnViewCapture()
 {
+    const bool bHiding = m_controls.ControlChecked(CMainFrameControls::Panel::CAPTURE);
     m_controls.ToggleControl(CMainFrameControls::Panel::CAPTURE);
+    AfxGetAppSettings().bHideCaptureSettings = bHiding;
 }
 
 void CMainFrame::OnUpdateViewCapture(CCmdUI* pCmdUI)
@@ -9045,7 +9067,9 @@ void CMainFrame::OnPlayStop(bool is_closing)
             MediaControlStop(true);
         }
 
-        m_dSpeedRate = 1.0;
+        if (!m_fEndOfStream) {
+            m_dSpeedRate = 1.0;
+        }
 
         if (m_fFrameSteppingActive) {
             m_pFS->CancelStep();
@@ -13759,8 +13783,10 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
                         m_pSplitterSS = pBF;
                     } else {
                         if (clsid == CLSID_VSFilter || clsid == CLSID_XySubFilter) {
-                            m_pDVS = pBF;
-                            m_pDVS2 = pBF;
+                            if (!s.IsISRAutoLoadEnabled()) {
+                                m_pDVS = pBF;
+                                m_pDVS2 = pBF;
+                            }
                         } else {
                             if (clsid != CLSID_MPCBEAudioRenderer) {
                                 if (CComQIPtr<IAMStreamSelect> pTest = pBF) {
@@ -13945,8 +13971,7 @@ void CMainFrame::SetupExternalChapters()
     }
 
     CPath cp(fn);
-    cp.RenameExtension(_T(".xchp"));
-    if (!cp.FileExists()) {
+    if (!cp.RenameExtension(_T(".xchp")) || !cp.FileExists()) {
         return;
     }
     fn = cp.m_strPath;
@@ -14297,8 +14322,10 @@ void CMainFrame::OpenDVD(OpenDVDData* pODD)
             m_pAudioSwitcherSS = pBF;
         } else {
             if (clsid == CLSID_VSFilter || clsid == CLSID_XySubFilter) {
-                m_pDVS = pBF;
-                m_pDVS2 = pBF;
+                if (!s.IsISRAutoLoadEnabled()) {
+                    m_pDVS = pBF;
+                    m_pDVS2 = pBF;
+                }
             } else {
                 if (clsid != CLSID_MPCBEAudioRenderer) {
                     if (CComQIPtr<IAMStreamSelect> pTest = pBF) {
@@ -14414,8 +14441,10 @@ HRESULT CMainFrame::OpenBDAGraph()
                 m_pAudioSwitcherSS = pBF;
             } else {
                 if (clsid == CLSID_VSFilter || clsid == CLSID_XySubFilter) {
-                    m_pDVS = pBF;
-                    m_pDVS2 = pBF;
+                    if (!AfxGetAppSettings().IsISRAutoLoadEnabled()) {
+                        m_pDVS = pBF;
+                        m_pDVS2 = pBF;
+                    }
                 }
             }
         }
@@ -19246,6 +19275,10 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     auto& s = AfxGetAppSettings();
     bool savehistory = false;
     if (GetLoadState() == MLS::LOADED) {
+        if (GetMediaState() == State_Running) {
+            MediaControlPause(true);
+        }
+
         // abort sub search
         m_pSubtitlesProviders->Abort(SubtitlesThreadType(STT_SEARCH | STT_DOWNLOAD));
         m_wndSubtitlesDownloadDialog.DoClear();
@@ -19393,7 +19426,12 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                         if (extendedwait || m_fFullScreen) {
                             processmsg = false;
                         } else {
-                            CString msg = L"Timeout while aborting filter graph creation.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            CString msg;
+                            if (s.iDSVideoRendererType == VIDRNDT_DS_MADVR) {
+                                msg = L"Timeout while aborting filter graph creation.\n\nIf files load slowly with MadVR, you should change dithering in Madvr settings (Error Diffusion is broken on AMD GPU).\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            } else {
+                                msg = L"Timeout while aborting filter graph creation.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            }
                             if (IDYES == AfxMessageBox(msg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
                                 processmsg = false;
                             } else {

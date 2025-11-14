@@ -70,6 +70,7 @@ bool NeedLogin() override;
 SRESULT Login(const std::string& sUserName, const std::string& sPassword) override;
 SRESULT LogOut() override;
 SRESULT Hash(SubtitlesInfo& pFileInfo) override;
+bool UseForAutoDownload() override;
 
 struct Response {
     DWORD code = 0;

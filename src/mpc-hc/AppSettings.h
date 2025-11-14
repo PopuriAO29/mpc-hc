@@ -878,6 +878,7 @@ public:
     // View
     MpcCaptionState eCaptionMenuMode;
     bool            fHideNavigation;
+    bool            bHideCaptureSettings;
     UINT            nCS; // Control state for toolbars
     // Language
     LANGID          language;
