@@ -1519,7 +1519,7 @@ HRESULT CMpcAudioRenderer::Transform(IMediaSample *pMediaSample)
 
 	auto pInputBufferPointer = pMediaBuffer;
 
-	std::unique_ptr<BYTE> pChangedBuffer;
+	std::unique_ptr<BYTE[]> pChangedBuffer;
 
 	if (m_bUpdateBalanceMask) {
 		SetBalanceMask(m_output_params.layout);
@@ -2019,6 +2019,10 @@ again:
 	BOOL bInitNeed = TRUE;
 	// Compare the existing WAVEFORMATEX with the one provided
 	if (CheckFormatChanged(pWaveFormatEx, &m_pWaveFormatExInput) || !m_pWaveFormatExOutput) {
+        if (!m_pAudioClient) {
+            ASSERT(false);
+            return E_FAIL;
+        }
 
 		// Format has changed, audio client has to be reinitialized
 		TRACE(L"CMpcAudioRenderer::CheckAudioClient() - Format changed, re-initialize the audio client\n");

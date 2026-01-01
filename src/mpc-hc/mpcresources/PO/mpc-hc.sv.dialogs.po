@@ -817,6 +817,14 @@ msgctxt "IDD_FAVORGANIZE_IDOK"
 msgid "OK"
 msgstr "OK"
 
+msgctxt "IDD_FAVORGANIZE_IDCANCEL"
+msgid "Cancel"
+msgstr ""
+
+msgctxt "IDD_FAVORGANIZE_ID_APPLY_NOW"
+msgid "Apply"
+msgstr ""
+
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
 msgid "PnS Frame Adjust Presets"
 msgstr ""
@@ -1679,7 +1687,7 @@ msgctxt "IDD_DEBUGSHADERS_DLG_IDC_RADIO4"
 msgid "PS 3.0"
 msgstr "PS 3.0"
 
-msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC"
+msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC1"
 msgid "Debug Information"
 msgstr "Felsökningsinformation"
 
@@ -1969,6 +1977,10 @@ msgstr ""
 
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC3"
 msgid "Toolbar Scale:"
+msgstr ""
+
+msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"
+msgid "Toolbar Alignment:"
 msgstr ""
 
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"

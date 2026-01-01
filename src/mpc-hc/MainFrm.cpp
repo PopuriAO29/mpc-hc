@@ -821,7 +821,7 @@ CMainFrame::CMainFrame()
     , m_nVolumeBeforeFrameStepping(0)
     , m_fEndOfStream(false)
     , m_dwLastPause(0)
-    , m_dwReloadPos(0)
+    , m_rtReloadPos(0)
     , m_iReloadAudioIdx(-1)
     , m_iReloadSubIdx(-1)
     , m_bRememberFilePos(false)
@@ -4277,7 +4277,7 @@ LRESULT CMainFrame::OnOpenMediaFailed(WPARAM wParam, LPARAM lParam)
     m_bOpenMediaActive = false;
     m_OpenMediaFailedCount++;
 
-    m_dwReloadPos = 0;
+    m_rtReloadPos = 0;
     reloadABRepeat = ABRepeat();
     m_iReloadAudioIdx = -1;
     m_iReloadSubIdx = -1;
@@ -5288,11 +5288,11 @@ void CMainFrame::OnFileReopen()
 
     // save playback position
     if (GetLoadState() == MLS::LOADED) {
-        if (m_bRememberFilePos && !m_fEndOfStream && m_dwReloadPos == 0 && m_pMS) {
+        if (m_bRememberFilePos && !m_fEndOfStream && m_rtReloadPos == 0 && m_pMS) {
             auto& s = AfxGetAppSettings();
             REFERENCE_TIME rtNow = 0;
             m_pMS->GetCurrentPosition(&rtNow);
-            m_dwReloadPos = rtNow;
+            m_rtReloadPos = rtNow;
             s.MRU.UpdateCurrentFilePosition(rtNow, true);
         }
         reloadABRepeat = abRepeat;
@@ -6676,6 +6676,7 @@ void CMainFrame::OnFileSubtitlesLoad()
     // Set the current file directory as default folder
     CString curfile = m_wndPlaylistBar.GetCurFileName();
     if (!PathUtils::IsURL(curfile)) {
+        ExtendMaxPathLengthIfNeeded(curfile, true);
         CPathW defaultDir(curfile);
         defaultDir.RemoveFileSpec();
         if (!defaultDir.m_strPath.IsEmpty() && defaultDir.IsDirectory()) {
@@ -8847,7 +8848,7 @@ void CMainFrame::OnPlayPlay()
                     // after long pause or hibernation, reload video file to avoid playback issues on some systems (with buggy drivers)
                     // in case of hibernate, m_dwLastPause equals 1
                     if (m_dwLastPause == 1 || s.iReloadAfterLongPause > 0 && (GetTickCount64() - m_dwLastPause >= s.iReloadAfterLongPause * 60 * 1000)) {
-                        m_dwReloadPos = m_wndSeekBar.GetPos();
+                        m_rtReloadPos = m_wndSeekBar.GetPos();
                         reloadABRepeat = abRepeat;
                         m_iReloadAudioIdx = GetCurrentAudioTrackIdx();
                         m_iReloadSubIdx = GetCurrentSubtitleTrackIdx();
@@ -9131,18 +9132,10 @@ void CMainFrame::OnUpdatePlayPauseStop(CCmdUI* pCmdUI)
             pCmdUI->m_nID == ID_PLAY_PLAYPAUSE && (fs == State_Paused || fs == State_Running);
 
         if (pCmdUI->m_nID == ID_PLAY_PLAY) {
-            CToolBarCtrl& toolbarCtrl = m_wndToolBar.GetToolBarCtrl();
-            int playbuttonstate = toolbarCtrl.GetState(ID_PLAY_PLAY);
             if (fs == State_Running) {
-                if (!(playbuttonstate & TBSTATE_HIDDEN)) {
-                    toolbarCtrl.SetState(ID_PLAY_PLAY, TBSTATE_HIDDEN);
-                    toolbarCtrl.SetState(ID_PLAY_PAUSE, TBSTATE_ENABLED);
-                }
+                m_wndToolBar.SetPlayPauseActiveButton(ID_PLAY_PAUSE);
             } else {
-                if (playbuttonstate & TBSTATE_HIDDEN) {
-                    toolbarCtrl.SetState(ID_PLAY_PLAY, TBSTATE_ENABLED);
-                    toolbarCtrl.SetState(ID_PLAY_PAUSE, TBSTATE_HIDDEN);
-                }
+                m_wndToolBar.SetPlayPauseActiveButton(ID_PLAY_PLAY);
             }
         }
 
@@ -9170,12 +9163,8 @@ void CMainFrame::OnUpdatePlayPauseStop(CCmdUI* pCmdUI)
         fEnable = (pCmdUI->m_nID == ID_PLAY_PLAY || pCmdUI->m_nID == ID_PLAY_PLAYPAUSE) && !IsPlaylistEmpty();
 
         if (pCmdUI->m_nID == ID_PLAY_PLAY) {
-            CToolBarCtrl& toolbarCtrl = m_wndToolBar.GetToolBarCtrl();
-            int playbuttonstate = toolbarCtrl.GetState(ID_PLAY_PLAY);
-            if (playbuttonstate & TBSTATE_HIDDEN) {
-                toolbarCtrl.SetState(ID_PLAY_PLAY, TBSTATE_ENABLED);
-                toolbarCtrl.SetState(ID_PLAY_PAUSE, TBSTATE_HIDDEN);
-            }
+            // Ensure play button is visible when no media is loaded
+            m_wndToolBar.SetPlayPauseActiveButton(ID_PLAY_PLAY);
         }
     }
 
@@ -11234,7 +11223,7 @@ void CMainFrame::OnFavoritesQuickAddFavorite()
 
 void CMainFrame::OnFavoritesOrganize()
 {
-    m_wndFavoriteOrganizeDialog.ShowWindow(SW_SHOW);
+    m_wndFavoriteOrganizeDialog.ShowAndLoad();
 }
 
 void CMainFrame::OnUpdateFavoritesOrganize(CCmdUI* pCmdUI)
@@ -11295,7 +11284,7 @@ void CMainFrame::PlayFavoriteFile(const CString& fav)
 
     m_wndPlaylistBar.SetCurLabel(ff.Name);
 
-    if (GetPlaybackMode() == PM_FILE && args.GetHead() == m_lastOMD->title) {
+    if (GetPlaybackMode() == PM_FILE && m_lastOMD && args.GetHead() == m_lastOMD->title) {
         m_pMS->SetPositions(&rtStart, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning);
         OnPlayPlay();
     } else {
@@ -15639,12 +15628,12 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
     // Debug trace code - Begin
     // Check for bad / buggy auto loading file code
     if (pFileData) {
+        TRACE(_T("--> CMainFrame::OpenMediaPrivate on thread: %lu\n"), GetCurrentThreadId());
         POSITION pos = pFileData->fns.GetHeadPosition();
         UINT index = 0;
         while (pos != nullptr) {
             CString path = pFileData->fns.GetNext(pos);
-            TRACE(_T("--> CMainFrame::OpenMediaPrivate - pFileData->fns[%u]:\n"), index);
-            TRACE(_T("\t%ws\n"), path.GetString()); // %ws - wide character string always
+            TRACE(_T("\tpFileData->fns[%u]: %ws\n"), index, path.GetString()); // %ws - wide character string always
             index++;
         }
     }
@@ -15781,11 +15770,11 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
                 abRepeat = pFileData->abRepeat;
             }
 
-            if (m_dwReloadPos > 0) {
-                if (m_dwReloadPos < rtDur) {
-                    rtPos = m_dwReloadPos;
+            if (m_rtReloadPos > 0) {
+                if (m_rtReloadPos < rtDur) {
+                    rtPos = m_rtReloadPos;
                 }
-                m_dwReloadPos = 0;
+                m_rtReloadPos = 0;
             }
             if (reloadABRepeat) {
                 abRepeat = reloadABRepeat;
@@ -19144,8 +19133,10 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
     }
 
     if (m_bOpenMediaActive) {
-        TRACE(_T("CMainFrame::OpenMedia -> skipping because there already is an active OpenMedia call\n"));
+        TRACE(_T("CMainFrame::OpenMedia (thread %lu) -> skipping because there already is an active OpenMedia call\n"), GetCurrentThreadId());
         return;
+    } else {
+        TRACE(_T("CMainFrame::OpenMedia (thread %lu)\n"), GetCurrentThreadId());
     }
     m_bOpenMediaActive = true;
 
@@ -19358,7 +19349,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
 
         // save playback position
         if (s.fKeepHistory && !bPendingFileDelete) {
-            if (m_bRememberFilePos && !m_fEndOfStream && m_dwReloadPos == 0 && m_pMS) {
+            if (m_bRememberFilePos && !m_fEndOfStream && m_rtReloadPos == 0 && m_pMS) {
                 REFERENCE_TIME rtNow = 0;
                 m_pMS->GetCurrentPosition(&rtNow);
                 if (rtNow > 0) {

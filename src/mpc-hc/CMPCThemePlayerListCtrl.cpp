@@ -16,6 +16,7 @@ CMPCThemePlayerListCtrl::CMPCThemePlayerListCtrl() : CListCtrl(), CMPCThemeScrol
     hasCBImages = false;
     customThemeInterface = nullptr;
     m_bReflectionRan = false;
+    m_imageListToggleHeight = 1;
 }
 
 
@@ -342,12 +343,32 @@ bool CMPCThemePlayerListCtrl::getFlaggedItem(int iItem)
     }
 }
 
+void CMPCThemePlayerListCtrl::ForceRowHeightRecalc()
+{
+    if (GetStyle() & LVS_OWNERDRAWFIXED) {
+        m_imageListToggleHeight = (m_imageListToggleHeight == 1) ? 2 : 1;
+
+        CImageList tempList;
+        tempList.Create(1, m_imageListToggleHeight, ILC_COLOR32, 0, 0);
+        SetImageList(&tempList, LVSIL_SMALL);
+        SetImageList(NULL, LVSIL_SMALL);
+
+        tempList.DeleteImageList();
+
+        SetRedraw(FALSE);
+        SetRedraw(TRUE);
+    }
+}
+
 void CMPCThemePlayerListCtrl::DoDPIChanged()
 {
     if (listMPCThemeFontBold.m_hObject) {
         listMPCThemeFontBold.DeleteObject();
     }
 
+    ForceRowHeightRecalc();
+
+    Invalidate();
 }
 
 
@@ -356,7 +377,6 @@ BOOL CMPCThemePlayerListCtrl::PreTranslateMessage(MSG* pMsg)
     if (AppNeedsThemedControls()) {
         if (!IsWindow(themedToolTip.m_hWnd)) {
             themedToolTip.Create(this, TTS_ALWAYSTIP);
-            themedToolTip.enableFlickerHelper();
         }
         if (IsWindow(themedToolTip.m_hWnd)) {
             themedToolTip.RelayEvent(pMsg);
@@ -376,6 +396,26 @@ void CMPCThemePlayerListCtrl::setCheckedColors(COLORREF checkedBG, COLORREF chec
 void CMPCThemePlayerListCtrl::OnNcPaint() {
     if (AppNeedsThemedControls()) {
         HandleNcPaint(m_hWnd);
+
+        if (CMPCThemeUtil::IsBasicMode()) {
+            CRect vScrollRect, hScrollRect;
+            bool bHasVScroll, bHasHScroll;
+            if (GetScrollBarRects(m_hWnd, vScrollRect, hScrollRect, bHasVScroll, bHasHScroll)) {
+                CRect wr;
+                ::GetWindowRect(m_hWnd, wr);
+
+                if (bHasVScroll) {
+                    HRGN hVScrollRgn = ::CreateRectRgn(wr.left + vScrollRect.left, wr.top + vScrollRect.top, wr.left + vScrollRect.right, wr.top + vScrollRect.bottom);
+                    ::DefWindowProc(m_hWnd, WM_NCPAINT, (WPARAM)hVScrollRgn, 0);
+                    ::DeleteObject(hVScrollRgn);
+                }
+                if (bHasHScroll) {
+                    HRGN hHScrollRgn = ::CreateRectRgn(wr.left + hScrollRect.left, wr.top + hScrollRect.top, wr.left + hScrollRect.right, wr.top + hScrollRect.bottom);
+                    ::DefWindowProc(m_hWnd, WM_NCPAINT, (WPARAM)hHScrollRgn, 0);
+                    ::DeleteObject(hHScrollRgn);
+                }
+            }
+        }
     } else {
         __super::OnNcPaint();
     }
@@ -397,12 +437,12 @@ int CMPCThemePlayerListCtrl::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
 LRESULT CMPCThemePlayerListCtrl::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
-    if (AppNeedsThemedControls()) {
+    if (AppNeedsThemedControls() && !CMPCThemeUtil::IsBasicMode()) {
         CMPCThemeScrollBarRenderer::ProcessMessage(m_hWnd, message, wParam, lParam);
     }
-    
+
     InvalidateCacheIfNeeded(message);
-    
+
     LRESULT result = __super::WindowProc(message, wParam, lParam);
     return result;
 }
@@ -632,7 +672,7 @@ void CMPCThemePlayerListCtrl::drawItem(CDC* pDC, int nItem, int nSubItem, CRect 
 }
 
 BOOL CMPCThemePlayerListCtrl::OnEraseBkgnd(CDC* pDC) {
-    if (AppNeedsThemedControls() && !PaintHooksActive()) {
+    if (AppNeedsThemedControls() && !PaintHooksActive() || !pDC) {
         return TRUE;
     } else {
         CRect updateRect;

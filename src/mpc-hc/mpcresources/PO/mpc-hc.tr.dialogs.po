@@ -10,7 +10,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2025-08-15 11:24:59+0000\n"
+"POT-Creation-Date: 2025-09-28 15:03:20+0000\n"
 "PO-Revision-Date: 2020-01-02 07:46+0000\n"
 "Last-Translator: Mücahid Aksel <mucahidaksel@gmail.com>, 2025\n"
 "Language-Team: Turkish (https://app.transifex.com/mpchc/teams/106126/tr/)\n"
@@ -825,6 +825,14 @@ msgstr "Kaldır"
 msgctxt "IDD_FAVORGANIZE_IDOK"
 msgid "OK"
 msgstr "Tamam"
+
+msgctxt "IDD_FAVORGANIZE_IDCANCEL"
+msgid "Cancel"
+msgstr ""
+
+msgctxt "IDD_FAVORGANIZE_ID_APPLY_NOW"
+msgid "Apply"
+msgstr ""
 
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
 msgid "PnS Frame Adjust Presets"
@@ -1694,7 +1702,7 @@ msgctxt "IDD_DEBUGSHADERS_DLG_IDC_RADIO4"
 msgid "PS 3.0"
 msgstr "PT 3.0"
 
-msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC"
+msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC1"
 msgid "Debug Information"
 msgstr "Çözümleme bilgisi"
 
@@ -1989,6 +1997,10 @@ msgstr "Kontrol çubuğu stili"
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC3"
 msgid "Toolbar Scale:"
 msgstr "Kontrol çubuğu boyutu:"
+
+msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"
+msgid "Toolbar Alignment:"
+msgstr ""
 
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"
 msgid "Active Style:"

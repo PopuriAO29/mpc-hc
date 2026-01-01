@@ -11,7 +11,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2025-09-28 15:03:20+0000\n"
+"POT-Creation-Date: 2025-12-14 16:16:34+0000\n"
 "PO-Revision-Date: 2020-01-02 07:46+0000\n"
 "Last-Translator: Łukasz Janik, 2025\n"
 "Language-Team: Polish (https://app.transifex.com/mpchc/teams/106126/pl/)\n"
@@ -819,6 +819,14 @@ msgstr "Usuń"
 msgctxt "IDD_FAVORGANIZE_IDOK"
 msgid "OK"
 msgstr "OK"
+
+msgctxt "IDD_FAVORGANIZE_IDCANCEL"
+msgid "Cancel"
+msgstr "Anuluj"
+
+msgctxt "IDD_FAVORGANIZE_ID_APPLY_NOW"
+msgid "Apply"
+msgstr "Zastosuj"
 
 msgctxt "IDD_PNSPRESET_DLG_CAPTION"
 msgid "PnS Frame Adjust Presets"
@@ -1685,7 +1693,7 @@ msgctxt "IDD_DEBUGSHADERS_DLG_IDC_RADIO4"
 msgid "PS 3.0"
 msgstr "PS 3.0"
 
-msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC"
+msgctxt "IDD_DEBUGSHADERS_DLG_IDC_STATIC1"
 msgid "Debug Information"
 msgstr "Informacje debugowania"
 
@@ -1980,6 +1988,10 @@ msgstr "Styl paska narzędzi"
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC3"
 msgid "Toolbar Scale:"
 msgstr "Skalowanie paska narzędzi:"
+
+msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"
+msgid "Toolbar Alignment:"
+msgstr "Wyrównanie paska narzędzi:"
 
 msgctxt "IDD_PPAGETOOLBAR_IDC_STATIC"
 msgid "Active Style:"

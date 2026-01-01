@@ -439,7 +439,7 @@ private:
     bool m_fCustomGraph;
     bool m_fShockwaveGraph;
 
-    int m_iGraphID;
+    volatile int m_iGraphID;
 
     CComPtr<ISubClock> m_pSubClock;
 
@@ -450,7 +450,7 @@ private:
 
     bool m_fEndOfStream;
     ULONGLONG m_dwLastPause;
-    ULONGLONG m_dwReloadPos;
+    REFERENCE_TIME m_rtReloadPos;
     int m_iReloadAudioIdx;
     int m_iReloadSubIdx;
 
@@ -502,11 +502,11 @@ private:
     CAutoPtr<SkypeMoodMsgHandler> m_pSkypeMoodMsgHandler;
     void SendNowPlayingToSkype();
 
-    MLS m_eMediaLoadState;
+    volatile MLS m_eMediaLoadState;
     OAFilterState m_CachedFilterState;
 
     bool m_bSettingUpMenus;
-    bool m_bOpenMediaActive;
+    volatile bool m_bOpenMediaActive;
     int m_OpenMediaFailedCount;
 
     bool m_bTBDropdownActive;
@@ -644,7 +644,7 @@ protected:
     void LoadKeyFrames();
     std::vector<REFERENCE_TIME> m_kfs;
 
-    bool m_fOpeningAborted;
+    volatile bool m_fOpeningAborted;
     bool m_bWasSnapped;
 
 protected:
@@ -827,6 +827,7 @@ public:
 protected:  // control bar embedded members
     friend class CMainFrameControls;
     friend class CPPageToolBarLayout;
+    friend class CPPageToolBar;
     CMainFrameControls m_controls;
     friend class CPlayerBar; // it notifies m_controls of panel re-dock
 
