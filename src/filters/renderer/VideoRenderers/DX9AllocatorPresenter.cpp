@@ -646,11 +646,16 @@ HRESULT CDX9AllocatorPresenter::CreateDevice(CString& _Error)
             pp.BackBufferWidth = m_BackBufferSize.cx;
             pp.BackBufferHeight = m_BackBufferSize.cy;
 
-            bTryToReset = bTryToReset && m_pD3DDevEx && SUCCEEDED(hr = m_pD3DDevEx->ResetEx(&pp, &DisplayMode));
+            bTryToReset = bTryToReset && m_pD3DDevEx;
+            if (bTryToReset) {
+                if (FAILED(m_pD3DDevEx->CheckDeviceState(NULL)) || FAILED(hr = m_pD3DDevEx->ResetEx(&pp, &DisplayMode))) {
+                    bTryToReset = false;
+                } 
+            }
 
             if (!bTryToReset) {
-                m_pD3DDev = nullptr;
-                m_pD3DDevEx = nullptr;
+                m_pD3DDev.Release();
+                m_pD3DDevEx.Release();
                 hr = m_pD3DEx->CreateDeviceEx(
                          m_CurrentAdapter, D3DDEVTYPE_HAL, m_hFocusWindow,
                          GetVertexProcessing() | D3DCREATE_FPU_PRESERVE | D3DCREATE_MULTITHREADED | D3DCREATE_ENABLE_PRESENTSTATS | D3DCREATE_NOWINDOWCHANGES, //D3DCREATE_MANAGED
@@ -672,8 +677,13 @@ HRESULT CDX9AllocatorPresenter::CreateDevice(CString& _Error)
             m_D3DDevExError = _T("No m_pD3DEx");
         }
         if (bTryToReset && m_pD3DDev && !m_pD3DDevEx) {
-            if (FAILED(hr = m_pD3DDev->Reset(&pp))) {
-                m_pD3DDev = nullptr;
+            hr = m_pD3DDev->TestCooperativeLevel();
+            if (hr == S_OK || hr == D3DERR_DEVICENOTRESET) {
+                if (FAILED(hr = m_pD3DDev->Reset(&pp))) {
+                    m_pD3DDev.Release();
+                }
+            } else {
+                m_pD3DDev.Release();
             }
         }
         if (!m_pD3DDev) {
@@ -726,11 +736,16 @@ HRESULT CDX9AllocatorPresenter::CreateDevice(CString& _Error)
             pp.BackBufferWidth  = m_BackBufferSize.cx;
             pp.BackBufferHeight = m_BackBufferSize.cy;
 
-            bTryToReset = bTryToReset && m_pD3DDevEx && SUCCEEDED(hr = m_pD3DDevEx->ResetEx(&pp, nullptr));
+            bTryToReset = bTryToReset && m_pD3DDevEx;
+            if (bTryToReset) {
+                if (FAILED(m_pD3DDevEx->CheckDeviceState(NULL)) || FAILED(hr = m_pD3DDevEx->ResetEx(&pp, nullptr))) {
+                    bTryToReset = false;
+                } 
+            }
 
             if (!bTryToReset) {
-                m_pD3DDev = nullptr;
-                m_pD3DDevEx = nullptr;
+                m_pD3DDev.Release();
+                m_pD3DDevEx.Release();
                 // We can get 0x8876086a here when switching from two displays to one display using Win + P (Windows 7)
                 // Cause: We might not reinitialize dx correctly during the switch
                 hr = m_pD3DEx->CreateDeviceEx(
@@ -744,8 +759,13 @@ HRESULT CDX9AllocatorPresenter::CreateDevice(CString& _Error)
             }
         }
         if (bTryToReset && m_pD3DDev && !m_pD3DDevEx) {
-            if (FAILED(hr = m_pD3DDev->Reset(&pp))) {
-                m_pD3DDev = nullptr;
+            hr = m_pD3DDev->TestCooperativeLevel();
+            if (hr == S_OK || hr == D3DERR_DEVICENOTRESET) {
+                if (FAILED(hr = m_pD3DDev->Reset(&pp))) {
+                    m_pD3DDev.Release();
+                }
+            } else {
+                m_pD3DDev.Release();
             }
         }
         if (!m_pD3DDev) {
@@ -766,8 +786,9 @@ HRESULT CDX9AllocatorPresenter::CreateDevice(CString& _Error)
     }
 
     if (m_pD3DDev) {
-        while (hr == D3DERR_DEVICELOST) {
+        for (int i = 0; i < 40 && hr == D3DERR_DEVICELOST; i++) {
             TRACE(_T("D3DERR_DEVICELOST. Trying to Reset.\n"));
+            Sleep(50);
             hr = m_pD3DDev->TestCooperativeLevel();
         }
         if (hr == D3DERR_DEVICENOTRESET) {

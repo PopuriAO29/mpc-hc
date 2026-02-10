@@ -27,22 +27,24 @@ static bool ScreenToNcClient(HWND hWnd, CPoint& point) {
 }
 
 void CMPCThemeScrollBarRenderer::ProcessMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
-    case WM_NCMOUSEMOVE:
-        OnNcMouseMove(hWnd, wParam, lParam);
-        break;
-    case WM_NCLBUTTONDOWN:
-        OnNcLButtonDown(hWnd, wParam, lParam);
-        break;
-    case WM_NCLBUTTONDBLCLK:
-        OnNcLButtonDown(hWnd, wParam, lParam);
-        break;
-    case WM_NCLBUTTONUP:
-        OnNcLButtonUp(hWnd, wParam, lParam);
-        break;
-    case WM_NCMOUSELEAVE:
-        OnNcMouseLeave(hWnd);
-        break;
+    if (IsThemeActive()) {
+        switch (message) {
+        case WM_NCMOUSEMOVE:
+            OnNcMouseMove(hWnd, wParam, lParam);
+            break;
+        case WM_NCLBUTTONDOWN:
+            OnNcLButtonDown(hWnd, wParam, lParam);
+            break;
+        case WM_NCLBUTTONDBLCLK:
+            OnNcLButtonDown(hWnd, wParam, lParam);
+            break;
+        case WM_NCLBUTTONUP:
+            OnNcLButtonUp(hWnd, wParam, lParam);
+            break;
+        case WM_NCMOUSELEAVE:
+            OnNcMouseLeave(hWnd);
+            break;
+        }
     }
 }
 
@@ -837,5 +839,29 @@ void CMPCThemeScrollBarRenderer::HandleNcPaint(HWND hWnd) {
     if (bHasHScroll) {
         SCROLLINFO si = { sizeof(SCROLLINFO), 0 };
         ::SetScrollInfo(hWnd, SB_HORZ, &si, true);
+    }
+
+    if (!IsThemeActive()) {
+        if (GetScrollBarRects(hWnd, vScrollRect, hScrollRect, bHasVScroll, bHasHScroll)) {
+            ::GetWindowRect(hWnd, wr);
+
+            if (bHasVScroll) {
+                HRGN hVScrollRgn = ::CreateRectRgn(wr.left + vScrollRect.left, wr.top + vScrollRect.top, wr.left + vScrollRect.right, wr.top + vScrollRect.bottom);
+                ::DefWindowProc(hWnd, WM_NCPAINT, (WPARAM)hVScrollRgn, 0);
+                ::DeleteObject(hVScrollRgn);
+            }
+            if (bHasHScroll) {
+                HRGN hHScrollRgn = ::CreateRectRgn(wr.left + hScrollRect.left, wr.top + hScrollRect.top, wr.left + hScrollRect.right, wr.top + hScrollRect.bottom);
+                ::DefWindowProc(hWnd, WM_NCPAINT, (WPARAM)hHScrollRgn, 0);
+                ::DeleteObject(hHScrollRgn);
+            }
+            if (bHasVScroll && bHasHScroll) {
+                CRect cornerRect;
+                if (GetScrollBarCornerRect(hWnd, cornerRect)) {
+                    CWindowDC dcCorner(CWnd::FromHandle(hWnd));
+                    DrawScrollBarCorner(&dcCorner, hWnd, cornerRect);
+                }
+            }
+        }
     }
 }

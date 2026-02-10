@@ -1643,7 +1643,7 @@
 #define IDS_SUBUL_DLG_TITLE             57478
 #define IDS_SUBUL_DLG_CONFIRM           57479
 #define IDS_SUBPP_DLG_FETCHING_LANGUAGES 57480
-#define IDS_SUB_CREDENTIALS_ERROR       57481
+#define IDS_OPENSUBTITLES_LOGIN_ERROR   57481
 #define IDS_SUB_AUTODL_IGNORE_TOOLTIP   57482
 #define IDS_CMD_PATHNAME                57483
 #define IDS_CMD_DUB                     57484
@@ -1694,6 +1694,7 @@
 #define IDS_CMD_HELP                    57529
 #define IDS_PPAGEADVANCED_SCORE         57530
 #define IDS_PPAGE_FS_CLN_AUDIO_DELAY    57531
+#define IDS_CMD_PNS_VALUES              57532
 #define IDS_SUBMENU_COPYURL             57535
 #define IDS_CMD_VIEWPRESET              57536
 #define IDS_CMD_MUTE                    57537

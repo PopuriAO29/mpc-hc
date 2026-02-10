@@ -114,6 +114,8 @@
 #include "stb/stb_image.h"
 #include "stb/stb_image_resize2.h"
 
+#include  "Logger.h"
+
 #include <dwmapi.h>
 #undef SubclassWindow
 
@@ -639,7 +641,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_WM_MOUSEHWHEEL()
 END_MESSAGE_MAP()
 
-#ifdef _DEBUG
+//#ifdef _DEBUG
 const TCHAR* GetEventString(LONG evCode)
 {
 #define UNPACK_VALUE(VALUE) case VALUE: return _T(#VALUE);
@@ -752,9 +754,11 @@ const TCHAR* GetEventString(LONG evCode)
             UNPACK_VALUE(EC_BG_ERROR);
     };
 #undef UNPACK_VALUE
-    return _T("UNKNOWN");
+    CString ret;
+    ret.Format(_T("UNKNOWN 0x%08x"), evCode);
+    return ret;
 }
-#endif
+//#endif
 
 void CMainFrame::EventCallback(MpcEvent ev)
 {
@@ -814,7 +818,6 @@ CMainFrame::CMainFrame()
     , m_nLastSkipDirection(0)
     , m_fCustomGraph(false)
     , m_fShockwaveGraph(false)
-    , m_iGraphID(0)
     , m_fFrameSteppingActive(false)
     , m_nStepForwardCount(0)
     , m_rtStepForwardStart(0)
@@ -1120,7 +1123,6 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
     m_Lcd.SetVolume(std::max(1, s.nVolume));
 
     m_pGraphThread = (CGraphThread*)AfxBeginThread(RUNTIME_CLASS(CGraphThread));
-
     if (m_pGraphThread) {
         m_pGraphThread->SetMainFrame(this);
     }
@@ -1220,12 +1222,12 @@ void CMainFrame::OnDestroy()
         VERIFY(m_pDebugShaders->DestroyWindow());
     }
 
-    if (m_pGraphThread) {
+    if (m_pGraphThread && m_pGraphThread->m_hThread) {
         CAMMsgEvent e;
-        m_pGraphThread->PostThreadMessage(CGraphThread::TM_EXIT, (WPARAM)0, (LPARAM)&e);
-        if (!e.Wait(5000)) {
-            TRACE(_T("ERROR: Must call TerminateThread() on CMainFrame::m_pGraphThread->m_hThread\n"));
+        if (!m_pGraphThread->PostThreadMessage(CGraphThread::TM_EXIT, (WPARAM)0, (LPARAM)&e) || !e.Wait(2000)) {
+            PLAYER_LOG(_T("CMainFrame::OnDestroy - Terminating graph thread due to timeout or failure"));
             TerminateThread(m_pGraphThread->m_hThread, DWORD_ERROR);
+            ASSERT(false);
         }
     }
 
@@ -1244,6 +1246,10 @@ void CMainFrame::OnDestroy()
 void CMainFrame::OnClose()
 {
     CAppSettings& s = AfxGetAppSettings();
+
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OnClose"));
+    }
 
     s.bToggleShader = m_bToggleShader;
     s.bToggleShaderScreenSpace = m_bToggleShaderScreenSpace;
@@ -1278,6 +1284,17 @@ void CMainFrame::OnClose()
     lockGraphAccess.Lock();
     AfxGetMyApp()->SetClosingState();
     lockGraphAccess.Unlock();
+
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OnClose - closing state has been set"));
+        FLUSH_LOGGER();
+    }
+
+    MSG msg;
+    int pm = 0;
+    while ((pm++ < 5) && PeekMessage(&msg, nullptr, WM_ACTIVATE, WM_ACTIVATE, PM_REMOVE)) {
+        TRACE(L"Purged WM_ACTIVATE during player close\n");
+    }
 
     __super::OnClose();
 }
@@ -1931,7 +1948,7 @@ void CMainFrame::OnDisplayChange() // untested, not sure if it's working...
     TRACE(_T("*** CMainFrame::OnDisplayChange()\n"));
 
     if (GetLoadState() == MLS::LOADED) {
-        if (m_pGraphThread) {
+        if (m_bOpenedThroughThread && m_pGraphThread && m_pGraphThread->m_hThread) {
             CAMMsgEvent e;
             m_pGraphThread->PostThreadMessage(CGraphThread::TM_DISPLAY_CHANGE, (WPARAM)0, (LPARAM)&e);
             e.WaitMsg();
@@ -1996,11 +2013,12 @@ LRESULT CMainFrame::OnDpiChanged(WPARAM wParam, LPARAM lParam)
 
 void CMainFrame::OnSysCommand(UINT nID, LPARAM lParam)
 {
-    // Only stop screensaver if video playing; allow for audio only
-    if ((!m_fAudioOnly && !m_fEndOfStream && GetLoadState() == MLS::LOADED && GetMediaState() == State_Running)
-            && (((nID & 0xFFF0) == SC_SCREENSAVE) || ((nID & 0xFFF0) == SC_MONITORPOWER))) {
-        TRACE(_T("SC_SCREENSAVE, nID = %u, lParam = %d\n"), nID, lParam);
-        return;
+    if ((nID & 0xFFF0) == SC_SCREENSAVE || (nID & 0xFFF0) == SC_MONITORPOWER) {
+        // Only stop screensaver if video playing
+        if (!m_fAudioOnly && !m_fEndOfStream && GetLoadState() == MLS::LOADED && GetMediaState() == State_Running) {
+            TRACE(_T("SC_SCREENSAVE, nID = %u, lParam = %d\n"), nID, lParam);
+            return;
+        }
     }
 
     __super::OnSysCommand(nID, lParam);
@@ -2348,14 +2366,6 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                     }
                     m_wndStatsBar.SetLine(StrRes(IDS_AG_FRAMERATE), info);
 
-                    if (SUCCEEDED(m_pQP->get_AvgSyncOffset(&tmp))
-                        && SUCCEEDED(m_pQP->get_DevSyncOffset(&tmp1))) {
-                        info.Format(IDS_STATSBAR_SYNC_OFFSET_FORMAT, tmp, tmp1);
-                    } else {
-                        info = _T("-");
-                    }
-                    m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_SYNC_OFFSET), info);
-
                     if (SUCCEEDED(m_pQP->get_FramesDrawn(&tmp))
                         && SUCCEEDED(m_pQP->get_FramesDroppedInRenderer(&tmp1))) {
                         info.Format(IDS_MAINFRM_6, tmp, tmp1);
@@ -2364,12 +2374,22 @@ void CMainFrame::OnTimer(UINT_PTR nIDEvent)
                     }
                     m_wndStatsBar.SetLine(StrRes(IDS_AG_FRAMES), info);
 
-                    if (SUCCEEDED(m_pQP->get_Jitter(&tmp))) {
-                        info.Format(_T("%d ms"), tmp);
-                    } else {
-                        info = _T("-");
+                    if (s.iDSVideoRendererType != VIDRNDT_DS_MADVR && s.iDSVideoRendererType != VIDRNDT_DS_EVR && s.iDSVideoRendererType != VIDRNDT_DS_SYNC) {
+                        if (SUCCEEDED(m_pQP->get_AvgSyncOffset(&tmp))
+                            && SUCCEEDED(m_pQP->get_DevSyncOffset(&tmp1))) {
+                            info.Format(IDS_STATSBAR_SYNC_OFFSET_FORMAT, tmp, tmp1);
+                        } else {
+                            info = _T("-");
+                        }
+                        m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_SYNC_OFFSET), info);
+
+                        if (SUCCEEDED(m_pQP->get_Jitter(&tmp))) {
+                            info.Format(_T("%d ms"), tmp);
+                        } else {
+                            info = _T("-");
+                        }
+                        m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_JITTER), info);
                     }
-                    m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_JITTER), info);
                 } else {
                     m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_PLAYBACK_RATE), rate);
                 }
@@ -2954,38 +2974,49 @@ void CMainFrame::GraphEventComplete()
 LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
 {
     if (wParam != 0) {
-        return E_INVALIDARG;
-    }
-
-    if (AfxGetMyApp()->m_fClosingState) {
+        ASSERT(false);
         return S_OK;
     }
-    if (lParam != m_iGraphID) {
+    if (AfxGetMyApp()->m_fClosingState) {
         ASSERT(false);
-        return E_INVALIDARG;
+        return S_OK;
+    }
+    if (!m_pME || lParam != (LPARAM)m_pME.p) {
+        ASSERT(false);
+        return S_OK;
+    }
+    if (m_fOpeningAborted || m_eMediaLoadState != MLS::LOADED && m_eMediaLoadState != MLS::LOADING) {
+        return S_OK;
     }
 
     lockGraphAccess.Lock();
 
-    if (AfxGetMyApp()->m_fClosingState) {
+    if (AfxGetMyApp()->m_fClosingState || m_fOpeningAborted || m_eMediaLoadState != MLS::LOADED && m_eMediaLoadState != MLS::LOADING) {
+        lockGraphAccess.Unlock();
         ASSERT(false);
         return S_OK;
     }
-    if (lParam != m_iGraphID) {
+    if (!m_pME || lParam != (LPARAM)m_pME.p) {
         lockGraphAccess.Unlock();
         ASSERT(false);
-        return E_INVALIDARG;
+        return S_OK;
     }
 
     HRESULT hr = S_OK;
     LONG evCode = 0;
     LONG_PTR evParam1, evParam2;
-    while (!AfxGetMyApp()->m_fClosingState && m_pME && !m_fOpeningAborted && (GetLoadState() == MLS::LOADED || GetLoadState() == MLS::LOADING) && SUCCEEDED(m_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
+    // there should be WM_GRAPHNOTIFY message for each event, so no need for a loop here
+    if (SUCCEEDED(m_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
 #ifdef _DEBUG
         if (evCode != EC_DVD_CURRENT_HMSF_TIME) {
-            TRACE(_T("--> CMainFrame::OnGraphNotify on thread: %lu; id: %ld; event: 0x%08x (%ws)\n"), GetCurrentThreadId(), lParam, evCode, GetEventString(evCode));
+            TRACE(_T("--> CMainFrame::OnGraphNotify (thread %lu)(graph %u)(loadstate %d) event: %ws\n"), GetCurrentThreadId(), (unsigned int)(lParam & 0xffff), m_eMediaLoadState, GetEventString(evCode));
+        }
+#else
+        if (evCode != EC_DVD_CURRENT_HMSF_TIME && USE_LOGGER(AfxGetAppSettings())) {
+            PLAYER_LOG(_T("CMainFrame::OnGraphNotify (thread %lu)(graph %u)(loadstate %d) event: %ws"), GetCurrentThreadId(), (unsigned int)(lParam & 0xffff), m_eMediaLoadState, GetEventString(evCode));
         }
 #endif
+
         CString str;
         if (m_fCustomGraph) {
             if (EC_BG_ERROR == evCode) {
@@ -3382,7 +3413,9 @@ LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
 
     if (!AfxGetMyApp()->m_fClosingState) {
         lockGraphAccess.Unlock();
-    }    
+    } else {
+        ASSERT(false);
+    }
 
     return hr;
 }
@@ -3400,7 +3433,7 @@ LRESULT CMainFrame::OnResetDevice(WPARAM wParam, LPARAM lParam)
         }
     }
 
-    if (m_bOpenedThroughThread) {
+    if (m_bOpenedThroughThread && m_pGraphThread && m_pGraphThread->m_hThread) {
         CAMMsgEvent e;
         m_pGraphThread->PostThreadMessage(CGraphThread::TM_RESET, (WPARAM)0, (LPARAM)&e);
         e.WaitMsg();
@@ -4042,13 +4075,19 @@ void CMainFrame::OnUpdatePlayerStatus(CCmdUI* pCmdUI)
 
 LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
 {
-    if (!m_pGB) {
+    auto& s = AfxGetAppSettings();
+        
+    if (m_pGB && GetLoadState() == MLS::LOADING) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OnFilePostOpenmedia (thread %lu)"), GetCurrentThreadId());
+        }
+    } else {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OnFilePostOpenmedia (thread %lu) - unexpected state"), GetCurrentThreadId());
+        }
         ASSERT(FALSE);
         return 1;
     }
-    ASSERT(GetLoadState() == MLS::LOADING);
-
-    auto& s = AfxGetAppSettings();
 
     // from this on
     m_bOpenMediaActive = false;
@@ -4135,7 +4174,7 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
 
     // Load cover-art
     if (m_fAudioOnly || HasDedicatedFSVideoWindow()) {
-        UpdateControlState(CMainFrame::UPDATE_LOGO);
+        UpdateControlState(CMainFrame::UPDATE_MEDIA_ART);
     }
 
     if (s.bOpenRecPanelWhenOpeningDevice) {
@@ -4264,6 +4303,10 @@ LRESULT CMainFrame::OnOpenMediaFailed(WPARAM wParam, LPARAM lParam)
     ASSERT(GetCurrentThreadId() == AfxGetApp()->m_nThreadID);
     const auto& s = AfxGetAppSettings();
 
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OnOpenMediaFailed (thread %lu)"), GetCurrentThreadId());
+    }
+
     m_lastOMD.Free();
     m_lastOMD.Attach((OpenMediaData*)lParam);
     if (!m_lastOMD->title) {
@@ -4390,7 +4433,7 @@ void CMainFrame::OnFilePostClosemedia(bool bNextIsQueued/* = false*/)
     m_HWAccelType = L"";
 
     if (!bNextIsQueued) {
-        UpdateControlState(CMainFrame::UPDATE_LOGO);
+        UpdateControlState(CMainFrame::UPDATE_MEDIA_ART);
         RecalcLayout();
     }
 
@@ -5286,10 +5329,14 @@ void CMainFrame::OnFileReopen()
         return;
     }
 
+    auto& s = AfxGetAppSettings();
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OnFileReopen"));
+    }
+
     // save playback position
     if (GetLoadState() == MLS::LOADED) {
         if (m_bRememberFilePos && !m_fEndOfStream && m_rtReloadPos == 0 && m_pMS) {
-            auto& s = AfxGetAppSettings();
             REFERENCE_TIME rtNow = 0;
             m_pMS->GetCurrentPosition(&rtNow);
             m_rtReloadPos = rtNow;
@@ -6939,6 +6986,10 @@ void CMainFrame::OnFileOpenLocation() {
 
 void CMainFrame::OnFileCloseMedia()
 {
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::OnFileCloseMedia"));
+    }
+
     CloseMedia();
 }
 
@@ -9174,7 +9225,7 @@ void CMainFrame::OnUpdatePlayPauseStop(CCmdUI* pCmdUI)
 
 void CMainFrame::OnPlayFramestep(UINT nID)
 {
-    if (!m_pFS && !m_pMS) {
+    if (!m_pFS && !m_pMS || m_fAudioOnly || GetLoadState() != MLS::LOADED || GetPlaybackMode() != PM_FILE && GetPlaybackMode() != PM_DVD) {
         return;
     }
 
@@ -9375,6 +9426,16 @@ void CMainFrame::KillTimersStop()
     KillTimer(TIMER_STREAMPOSPOLLER);
     KillTimer(TIMER_STATS);
     m_timerOneTime.Unsubscribe(TimerOneTimeSubscriber::DVBINFO_UPDATE);
+
+    MSG msg;
+    int pm = 0;
+    while ((pm++ < 5) && PeekMessage(&msg, nullptr, WM_TIMER, WM_TIMER, PM_REMOVE)) {
+        if (msg.wParam == TIMER_STREAMPOSPOLLER || msg.wParam == TIMER_STREAMPOSPOLLER2 || msg.wParam == TIMER_STATS || msg.wParam == TIMER_DELAYEDSEEK) {
+            TRACE(L"Purged WM_TIMER during stop, wParam=%u\n", msg.wParam);
+        } else {
+            DispatchMessage(&msg);
+        }
+    }
 }
 
 void CMainFrame::OnPlaySeekKey(UINT nID)
@@ -12549,6 +12610,7 @@ void CMainFrame::MoveVideoWindow(bool fShowStats/* = false*/, bool bSetStoppedVi
 
         if (m_pCAP) {
             m_pCAP->SetPosition(windowRect, videoRect);
+            UpdateSubtitleColorInfo();
             UpdateSubtitleRenderingParameters();
         } else  {
             if (m_pBV) {
@@ -13311,41 +13373,40 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
 
     m_fCustomGraph = false;
     m_fShockwaveGraph = false;
-    m_iGraphID++;
 
     const CAppSettings& s = AfxGetAppSettings();
 
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        if (m_pGB) {
+            PLAYER_LOG(_T("CMainFrame::OpenCreateGraphObject (thread %lu) - unxpected value for m_pGB"), GetCurrentThreadId());
+        } else {
+            PLAYER_LOG(_T("CMainFrame::OpenCreateGraphObject (thread %lu)"), GetCurrentThreadId());
+        }
+    }
+
     m_pGB_preview = nullptr;
     m_bUseSeekPreview = s.fUseSeekbarHover && s.fSeekPreview && m_wndPreView && ::IsWindow(m_wndPreView.m_hWnd) && !(s.nCLSwitches & CLSW_THUMBNAILS);
-    if (m_bUseSeekPreview) {
-#if 1
-        if (auto pOpenDVDData = dynamic_cast<OpenDVDData*>(pOMD)) {
-            // preview does not always work good with DVD even when loaded from hdd
-            m_bUseSeekPreview = false;
-        } else
-#endif
-        if (OpenFileData* pFileData = dynamic_cast<OpenFileData*>(pOMD)) {
-            CString fn = pFileData->fns.GetHead();
-            if (fn.IsEmpty()) {
+
+    if (auto pOpenFileData = dynamic_cast<OpenFileData*>(pOMD)) {
+        CString firstfilename = pOpenFileData->fns.GetHead();
+        if (firstfilename.IsEmpty()) {
+           throw (UINT)IDS_MAINFRM_81;
+        } else {
+            // disable seek preview for: streaming data, audio files, files on optical disc
+            if (PathUtils::IsURL(firstfilename)) {
                 m_bUseSeekPreview = false;
             } else {
-                CString ext = CPath(fn).GetExtension().MakeLower();
-                if (((fn.Find(L"://") >= 0) || IsAudioFileExt(ext) || ext == L".avs" || PathIsOnOpticalDisc(fn))) {
-                    // disable seek preview for: streaming data, audio files, files on optical disc
+                CString ext = CPath(firstfilename).GetExtension().MakeLower();
+                if (IsAudioFileExt(ext) || ext == L".avs" || PathIsOnOpticalDisc(firstfilename)) {
                     m_bUseSeekPreview = false;
                 }
             }
         }
-    }
 
-    if (auto pOpenFileData = dynamic_cast<OpenFileData*>(pOMD)) {
-        engine_t engine = s.m_Formats.GetEngine(pOpenFileData->fns.GetHead());
-
-        HRESULT hr = E_FAIL;
-        CComPtr<IUnknown> pUnk;
-
+        engine_t engine = s.m_Formats.GetEngine(firstfilename);
         if (engine == ShockWave) {
-            pUnk = (IUnknown*)(INonDelegatingUnknown*)DEBUG_NEW DSObjects::CShockwaveGraph(m_pVideoWnd->m_hWnd, hr);
+            HRESULT hr = E_FAIL;
+            CComPtr<IUnknown> pUnk = (IUnknown*)(INonDelegatingUnknown*)DEBUG_NEW DSObjects::CShockwaveGraph(m_pVideoWnd->m_hWnd, hr);
             if (!pUnk) {
                 throw (UINT)IDS_AG_OUT_OF_MEMORY;
             }
@@ -13362,7 +13423,7 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
         m_fCustomGraph = m_fShockwaveGraph;
 
         if (!m_fCustomGraph) {
-            CFGManagerPlayer* fgm = DEBUG_NEW CFGManagerPlayer(_T("CFGManagerPlayer"), nullptr, m_pVideoWnd->m_hWnd);
+            CFGManagerPlayer* fgm = DEBUG_NEW CFGManagerPlayer(_T("CFGManagerPlayer"), firstfilename, m_pVideoWnd->m_hWnd);
             if (!pOpenFileData->useragent.IsEmpty()) {
                 fgm->SetUserAgent(pOpenFileData->useragent);
             }
@@ -13373,22 +13434,29 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
 
             if (m_pGB && m_bUseSeekPreview) {
                 // build graph for preview
-                m_pGB_preview = DEBUG_NEW CFGManagerPlayer(L"CFGManagerPlayer", nullptr, m_wndPreView.GetVideoHWND(), true);
+                m_pGB_preview = DEBUG_NEW CFGManagerPlayer(L"CFGManagerPlayer", firstfilename, m_wndPreView.GetVideoHWND(), true);
             }
         }
     } else if (auto pOpenDVDData = dynamic_cast<OpenDVDData*>(pOMD)) {
-        m_pGB = DEBUG_NEW CFGManagerDVD(_T("CFGManagerDVD"), nullptr, m_pVideoWnd->m_hWnd);
-
+        CString dvdpath = pOpenDVDData->path;
+        m_pGB = DEBUG_NEW CFGManagerDVD(dvdpath, m_pVideoWnd->m_hWnd, false);
+#if 1
+        // preview does not always work good with DVD even when loaded from hdd
+        m_bUseSeekPreview = false;
+#else
         if (m_bUseSeekPreview) {
-            if (!PathIsOnOpticalDisc(pOpenDVDData->path)) {
-                m_pGB_preview = DEBUG_NEW CFGManagerDVD(L"CFGManagerDVD", nullptr, m_wndPreView.GetVideoHWND(), true);
+            if (!PathIsOnOpticalDisc(dvdpath)) {
+                m_pGB_preview = DEBUG_NEW CFGManagerDVD(dvdpath, m_wndPreView.GetVideoHWND(), true);
+            } else {
+                m_bUseSeekPreview = false;
             }
         }
+#endif
     } else if (auto pOpenDeviceData = dynamic_cast<OpenDeviceData*>(pOMD)) {
         if (s.iDefaultCaptureDevice == 1) {
-            m_pGB = DEBUG_NEW CFGManagerBDA(_T("CFGManagerBDA"), nullptr, m_pVideoWnd->m_hWnd);
+            m_pGB = DEBUG_NEW CFGManagerBDA(m_pVideoWnd->m_hWnd);
         } else {
-            m_pGB = DEBUG_NEW CFGManagerCapture(_T("CFGManagerCapture"), nullptr, m_pVideoWnd->m_hWnd);
+            m_pGB = DEBUG_NEW CFGManagerCapture(m_pVideoWnd->m_hWnd);
         }
     }
 
@@ -13421,13 +13489,11 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
         //m_pFS_preview = m_pGB_preview;
     }
 
-    if (!(m_pMC && m_pME && m_pMS)
-            || !(m_pVW && m_pBV)
-            || !(m_pBA)) {
+    if (!(m_pMC && m_pME && m_pMS) || !(m_pVW && m_pBV) || !(m_pBA)) {
         throw (UINT)IDS_GRAPH_INTERFACES_ERROR;
     }
 
-    if (FAILED(m_pME->SetNotifyWindow((OAHWND)m_hWnd, WM_GRAPHNOTIFY, (LPARAM)m_iGraphID))) {
+    if (FAILED(m_pME->SetNotifyWindow((OAHWND)m_hWnd, WM_GRAPHNOTIFY, (LPARAM)m_pME.p))) {
         throw (UINT)IDS_GRAPH_TARGET_WND_ERROR;
     }
 
@@ -14745,6 +14811,8 @@ CSize CMainFrame::OpenSetupGetVideoSize()
 // Called from GraphThread
 void CMainFrame::OpenSetupVideo()
 {
+    CAutoLock ga(&lockGraphAccess);
+
     CSize vs = OpenSetupGetVideoSize();
     if (m_fShockwaveGraph) {
         m_fAudioOnly = false;
@@ -14946,10 +15014,13 @@ void CMainFrame::OpenSetupStatsBar()
         EndEnumFilters;
 
         if (m_pQP) {
+            CAppSettings& s = AfxGetAppSettings();
             m_wndStatsBar.SetLine(StrRes(IDS_AG_FRAMERATE), info);
-            m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_SYNC_OFFSET), info);
             m_wndStatsBar.SetLine(StrRes(IDS_AG_FRAMES), info);
-            m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_JITTER), info);
+            if (s.iDSVideoRendererType != VIDRNDT_DS_MADVR && s.iDSVideoRendererType != VIDRNDT_DS_EVR && s.iDSVideoRendererType != VIDRNDT_DS_SYNC) {
+                m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_SYNC_OFFSET), info);
+                m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_JITTER), info);
+            }
         } else {
             m_wndStatsBar.SetLine(StrRes(IDS_STATSBAR_PLAYBACK_RATE), info);
         }
@@ -15594,6 +15665,10 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
     ASSERT(GetLoadState() == MLS::LOADING);
     auto& s = AfxGetAppSettings();
 
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OpenMediaPrivate (thread %lu)"), GetCurrentThreadId());
+    }
+
     m_fValidDVDOpen = false;
     m_iDefRotation = 0;
 
@@ -15670,6 +15745,10 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
 
         if (!m_pGB) {
             throw (UINT)IDS_MAINFRM_88;
+        }
+
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMediaPrivate - filter graph has been created"));
         }
 
         m_pGB->FindInterface(IID_PPV_ARGS(&m_pCAP), TRUE);
@@ -15927,7 +16006,11 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         ASSERT(lp);
         return std::make_pair(wp, lp);
     };
+
     if (err.IsEmpty()) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMediaPrivate - completed"));
+        }
         auto args = getMessageArgs();
         if (!m_bOpenedThroughThread) {
             ASSERT(GetCurrentThreadId() == AfxGetApp()->m_nThreadID);
@@ -15936,6 +16019,9 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
             PostMessage(WM_POSTOPEN, args.first, args.second);
         }
     } else if (!m_fOpeningAborted) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMediaPrivate - failure: %s"), err);
+        }
         auto args = getMessageArgs();
         if (!m_bOpenedThroughThread) {
             ASSERT(GetCurrentThreadId() == AfxGetApp()->m_nThreadID);
@@ -15945,6 +16031,9 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         }
     } else {
         m_bOpenMediaActive = false;
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMediaPrivate - aborted"));
+        }
     }
 
     return err.IsEmpty();
@@ -15954,7 +16043,14 @@ void CMainFrame::CloseMediaPrivate()
 {
     ASSERT(GetLoadState() == MLS::CLOSING);
 
-    MediaControlStop(true); // needed for StreamBufferSource, because m_iMediaLoadState is always MLS::CLOSED // TODO: fix the opening for such media
+    CAppSettings& s = AfxGetAppSettings();
+
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::CloseMediaPrivate (thread %lu) - start"), GetCurrentThreadId());
+    }
+
+    ULONGLONG tc1 = GetTickCount64();
+
     m_CachedFilterState = -1;
 
     m_fLiveWM = false;
@@ -15963,6 +16059,7 @@ void CMainFrame::CloseMediaPrivate()
     m_rtDurationOverride = -1;
     m_bUsingDXVA = false;
     m_audioTrackCount = 0;
+
     if (m_pDVBState) {
         m_pDVBState->Join();
         m_pDVBState = nullptr;
@@ -15977,14 +16074,20 @@ void CMainFrame::CloseMediaPrivate()
     }
     m_pSubClock.Release();
 
+    m_OSD.Stop();
+
     if (m_pVW && !m_pMVRS) {
         m_pVW->put_Owner(NULL);
+    }
+    if (m_pVW_preview) {
+        m_pVW_preview->put_Owner(NULL);
     }
 
     m_bIsMPCVRExclusiveMode = false;
 
+    ULONGLONG tc2 = GetTickCount64();
+
     // IMPORTANT: IVMRSurfaceAllocatorNotify/IVMRSurfaceAllocatorNotify9 has to be released before the VMR/VMR9, otherwise it will crash in Release()
-    m_OSD.Stop();
     m_pMVRFG.Release();
     m_pMVRSR.Release();
     m_pMVRS.Release();
@@ -16016,6 +16119,8 @@ void CMainFrame::CloseMediaPrivate()
     m_pAMTuner.Release();
     m_pCGB.Release();
 
+    ULONGLONG tc3 = GetTickCount64();
+
     m_pDVDC.Release();
     m_pDVDI.Release();
     m_pAMOP.Release();
@@ -16043,16 +16148,20 @@ void CMainFrame::CloseMediaPrivate()
         pSS.Release();
     }
 
+    ULONGLONG tc4 = GetTickCount64();
+
     if (m_pGB) {
         m_pGB->RemoveFromROT();
         m_pGB.Release();
     }
 
+    ULONGLONG tc5 = GetTickCount64();
+    ULONGLONG tc6 = tc5;
+
     if (m_pGB_preview) {
-        TRACE(_T("Stopping preview graph\n"));
-        MediaControlStopPreview();
         TRACE(_T("Releasing preview graph\n"));
         ReleasePreviewGraph();
+        tc6 = GetTickCount64();
     }
 
     m_pProv.Release();
@@ -16062,6 +16171,11 @@ void CMainFrame::CloseMediaPrivate()
     m_lastOMD.Free();
 	
 	m_FontInstaller.UninstallFonts();
+
+    if (USE_LOGGER(s)) {
+        ULONGLONG tc7 = GetTickCount64();
+        PLAYER_LOG(_T("CMainFrame::CloseMediaPrivate - complete - %llums %llums %llums %llums %llums %llums"), tc2-tc1, tc3-tc2, tc4-tc3, tc5-tc4, tc6-tc5, tc7-tc6);
+    }
 }
 
 bool CMainFrame::WildcardFileSearch(CString searchstr, std::set<CString, CStringUtils::LogicalLess>& results, bool recurse_dirs)
@@ -17962,13 +18076,14 @@ void CMainFrame::UpdateSubtitleColorInfo()
     }
 
     // store video mediatype, so colorspace information can be extracted when present
-    // FIXME: mediatype extended colorinfo may be absent on initial connection, call this again after first frame has been decoded?
-    CComQIPtr<IBaseFilter> pBF = m_pCAP;
-    CComPtr<IPin> pPin = GetFirstPin(pBF);
-    if (pPin) {
-        AM_MEDIA_TYPE mt;
-        if (SUCCEEDED(pPin->ConnectionMediaType(&mt))) {
-            m_pCAP->SetVideoMediaType(CMediaType(mt));
+    IBaseFilter* pBF = FindFilter(GUID_LAVVideo, m_pGB);
+    if (pBF) {
+        CComPtr<IPin> pPin = GetFirstPin(pBF, PINDIR_OUTPUT);
+        if (pPin) {
+            AM_MEDIA_TYPE mt;
+            if (SUCCEEDED(pPin->ConnectionMediaType(&mt))) {
+                m_pCAP->SetVideoMediaType(CMediaType(mt));
+            }
         }
     }
 
@@ -18032,12 +18147,8 @@ void CMainFrame::SetSubtitle(const SubtitleInput& subInput, bool skip_lcid /* = 
 
         m_pCurrentSubInput = subInput;
 
+        UpdateSubtitleColorInfo();
         UpdateSubtitleRenderingParameters();
-
-        if (firstuse) {
-            // note: can deadlock when calling ConnectionMediaType() with MPCVR when SubPicProvider!=nullptr
-            UpdateSubtitleColorInfo();
-        }
 
         if (!skip_lcid) {
             LCID lcid = 0;
@@ -19132,10 +19243,18 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
         }
     }
 
+    const auto& s = AfxGetAppSettings();
+
     if (m_bOpenMediaActive) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMedia (thread %lu) -> skipping because there already is an active OpenMedia call"), GetCurrentThreadId());
+        }
         TRACE(_T("CMainFrame::OpenMedia (thread %lu) -> skipping because there already is an active OpenMedia call\n"), GetCurrentThreadId());
         return;
     } else {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMedia (thread %lu)"), GetCurrentThreadId());
+        }
         TRACE(_T("CMainFrame::OpenMedia (thread %lu)\n"), GetCurrentThreadId());
     }
     m_bOpenMediaActive = true;
@@ -19189,11 +19308,18 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
     // we hereby proclaim
     SetLoadState(MLS::LOADING);
 
-    const auto& s = AfxGetAppSettings();
-
     // use the graph thread only for some media types
     bool bDirectShow = pFileData && !pFileData->fns.IsEmpty() && s.m_Formats.GetEngine(pFileData->fns.GetHead()) == DirectShow;
-    bool bUseThread = m_pGraphThread && s.fEnableWorkerThreadForOpening && (bDirectShow || !pFileData) && (s.iDefaultCaptureDevice == 1 || !pDeviceData);
+    bool bUseThread = m_pGraphThread && s.fEnableWorkerThreadForOpening && (bDirectShow || !pFileData) && (s.iDefaultCaptureDevice == 1 || !pDeviceData);  
+    if (bUseThread && (!m_pGraphThread->m_hThread || m_pGraphThread->hr_coinit != S_OK)) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::OpenMedia - graph thread init error (0x%08X) - proceeding without worker thread"), m_pGraphThread->hr_coinit);
+        }
+        bUseThread = false;
+        m_pGraphThread = nullptr;
+        ASSERT(false);
+    }
+
     bool wasMaximized = IsZoomed();
     // create d3dfs window if launching in fullscreen and d3dfs is enabled
     if (s.IsD3DFullscreen() && m_fStartInD3DFullscreen) {
@@ -19235,17 +19361,33 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
 
     // initiate graph creation, OpenMediaPrivate() will call OnFilePostOpenmedia()
     if (bUseThread) {
-        VERIFY(m_evOpenPrivateFinished.Reset());
-        VERIFY(m_pGraphThread->PostThreadMessage(CGraphThread::TM_OPEN, (WPARAM)0, (LPARAM)pOMD.Detach()));
-        m_bOpenedThroughThread = true;
-    } else {
-        OpenMediaPrivate(pOMD);
+        OpenMediaData* pOMDCopy = pOMD.Detach();
+        if (m_evOpenPrivateFinished.Reset() && m_pGraphThread->PostThreadMessage(CGraphThread::TM_OPEN, (WPARAM)0, (LPARAM)pOMDCopy)) {
+            m_bOpenedThroughThread = true;
+        } else {
+            int lasterror = GetLastError();
+            if (USE_LOGGER(s)) {
+                PLAYER_LOG(_T("CMainFrame::OpenMedia - failed to use graph working thread (error %d)"), lasterror);
+            }
+            bUseThread = false;
+            m_pGraphThread = nullptr;
+            pOMD.Attach(pOMDCopy);
+            FLUSH_LOGGER();
+            ASSERT(false);
+        }
+    }
+
+    if (!bUseThread) {
         m_bOpenedThroughThread = false;
+        OpenMediaPrivate(pOMD);
     }
 }
 
 bool CMainFrame::ResetDevice()
 {
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::ResetDevice"));
+    }
     if (m_pCAP2_preview) {
         m_pCAP2_preview->ResetDevice();
     }
@@ -19257,6 +19399,9 @@ bool CMainFrame::ResetDevice()
 
 bool CMainFrame::DisplayChange()
 {
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::DisplayChange"));
+    }
     if (m_pCAP2_preview) {
         m_pCAP2_preview->DisplayChange();
     }
@@ -19278,7 +19423,10 @@ bool CMainFrame::CloseMediaBeforeOpen()
                 return true;
             }
         }
-        return (m_eMediaLoadState == MLS::CLOSED);
+        if (m_eMediaLoadState != MLS::CLOSED) {
+            PLAYER_LOG(_T("CMainFrame::CloseMediaBeforeOpen - unexpected loadstate %d"), m_eMediaLoadState);
+            return false;
+        }
     }
     return true;
 }
@@ -19286,6 +19434,10 @@ bool CMainFrame::CloseMediaBeforeOpen()
 void CMainFrame::ForceCloseProcess()
 {
     MessageBeep(MB_ICONEXCLAMATION);
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::ForceCloseProcess"));
+        FLUSH_LOGGER();
+    }
     if (CrashReporter::IsEnabled()) {
         CrashReporter::Disable();
     }
@@ -19296,6 +19448,8 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
 {
     TRACE(_T("CMainFrame::CloseMedia\n"));
 
+    auto& s = AfxGetAppSettings();
+
     m_dwLastPause = 0;
 
     if (m_bUseSeekPreview && m_wndPreView.IsWindowVisible()) {
@@ -19305,10 +19459,16 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     m_bDVDStillOn = false;
 
     if (m_eMediaLoadState == MLS::CLOSED) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::CloseMedia (thread %lu) - ignoring because already closed"), GetCurrentThreadId());
+        }
         TRACE(_T("Ignoring duplicate close action.\n"));
         return;
     }
     if (m_eMediaLoadState == MLS::CLOSING) {
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::CloseMedia (thread %lu) - already closing - waiting"), GetCurrentThreadId());
+        }
         TRACE(_T("Duplicate close action.\n"));
         for (int i = 0; i < 10; i++) {
             Sleep(250);
@@ -19316,17 +19476,30 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                 break;
             }
         }
+        if (USE_LOGGER(s) && m_eMediaLoadState != MLS::CLOSED) {
+            PLAYER_LOG(_T("CMainFrame::CloseMedia (thread %lu) - unexpected loadstate"), GetCurrentThreadId());
+        }
         ASSERT(m_eMediaLoadState == MLS::CLOSED);
         return;
     }
 
-    m_iGraphID++;
-    if (m_pME) {
-        m_pME->SetNotifyFlags(AM_MEDIAEVENT_NONOTIFY);
-        m_pME->SetNotifyWindow(NULL, 0, 0);
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::CloseMedia (thread %lu) - starting close"), GetCurrentThreadId());
     }
 
     CAutoLock ga(&lockGraphAccess);
+
+    if (m_pME) {
+        m_pME->SetNotifyFlags(AM_MEDIAEVENT_NONOTIFY);
+        m_pME->SetNotifyWindow(NULL, 0, 0);
+        m_pME.Release();
+    }
+
+    MSG msg;
+    // purge possible queued graph events
+    while (PeekMessage(&msg, nullptr, WM_GRAPHNOTIFY, WM_GRAPHNOTIFY, PM_REMOVE)) {
+        TRACE(L"Purged queued graph event\n");
+    }
 
     m_media_trans_control.close();
 
@@ -19335,7 +19508,6 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
         ASSERT(!m_bSettingUpMenus);
     }
 
-    auto& s = AfxGetAppSettings();
     bool savehistory = false;
     if (GetLoadState() == MLS::LOADED) {
         if (GetMediaState() == State_Running) {
@@ -19411,6 +19583,9 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     bool bGraphTerminated = false;
     if (GetLoadState() == MLS::LOADING) {
         TRACE(_T("Media is still loading. Aborting graph.\n"));
+        if (USE_LOGGER(s)) {
+            PLAYER_LOG(_T("CMainFrame::CloseMedia - Need to abort graph creation"));
+        }
 
         // tell OpenMediaPrivate() that we want to abort
         m_fOpeningAborted = true;
@@ -19443,9 +19618,8 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
             m_pGB_preview->Abort();
         }
 
-        if (m_bOpenedThroughThread) {
+        if (m_bOpenedThroughThread && m_pGraphThread && m_pGraphThread->m_hThread) {
             BeginWaitCursor();
-            MSG msg;
             DWORD dwWait;
             HANDLE handle = m_evOpenPrivateFinished;
             ULONGLONG waitdur = 6000ULL;
@@ -19453,6 +19627,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
             bool killprocess = true;
             bool processmsg = true;
             bool extendedwait = false;
+            int pm = 0;
             while (processmsg) {
                 dwWait = MsgWaitForMultipleObjects(1, &handle, FALSE, waitdur, QS_POSTMESSAGE | QS_SENDMESSAGE);
                 switch (dwWait) {
@@ -19464,12 +19639,18 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                         break;
                     case WAIT_OBJECT_0 + 1:
                         // we have a message - peek and dispatch it
-                        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+                        pm = 0;
+                        while ((pm++ < 3) && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
                             if (msg.message == WM_QUIT) {
                                 processmsg = false;
+                            } else if (msg.message == 0) {
+                                // ignore
                             } else if (msg.message == WM_GRAPHNOTIFY) {
                                 // ignore
                             } else {
+                                if (msg.message != WM_PAINT && msg.message != WM_KEYUP && msg.message != WM_MOUSEMOVE && msg.message != EVENT_OBJECT_VALUECHANGE && msg.message != EVENT_OBJECT_PARENTCHANGE && msg.message != 0xc03e) {
+                                    TRACE(_T("Dispatch WM during graph abort: msg=0x%x wp=%u lp=%ld\n"), msg.message, msg.wParam, msg.lParam);
+                                }
                                 TranslateMessage(&msg);
                                 DispatchMessage(&msg);
                             }
@@ -19482,20 +19663,24 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                         break;
                 }
                 if (processmsg) {
+                    ASSERT(m_pGB || m_pGB_preview);
                     ULONGLONG cur = GetTickCount64();
                     if (tckill > cur) {
                         waitdur = tckill - cur;
                     } else {
-                        if (extendedwait || m_fFullScreen) {
+                        if (extendedwait || m_fFullScreen || s.hMasterWnd) {
                             processmsg = false;
                         } else {
-                            CString msg;
+                            CString timeoutmsg;
                             if (s.iDSVideoRendererType == VIDRNDT_DS_MADVR) {
-                                msg = L"Timeout while aborting filter graph creation.\n\nIf files load slowly with MadVR, you should change dithering in Madvr settings (Error Diffusion is broken on AMD GPU).\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                                timeoutmsg = L"Timeout while aborting filter graph creation.\n\nIf files load slowly with MadVR, you should change dithering in Madvr settings (Error Diffusion is broken on AMD GPU).\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                             } else {
-                                msg = L"Timeout while aborting filter graph creation.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                                timeoutmsg = L"Timeout while aborting filter graph creation.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                             }
-                            if (IDYES == AfxMessageBox(msg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
+                            if (USE_LOGGER(s)) {
+                                PLAYER_LOG(_T("CMainFrame::CloseMedia - Timeout when aborting filter graph creation"));
+                            }
+                            if (IDYES == AfxMessageBox(timeoutmsg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
                                 processmsg = false;
                             } else {
                                 extendedwait = true;
@@ -19519,7 +19704,6 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
             ForceCloseProcess();
         }
 
-        MSG msg;
         // purge possible queued OnFilePostOpenmedia()
         if (PeekMessage(&msg, m_hWnd, WM_POSTOPEN, WM_POSTOPEN, PM_REMOVE | PM_NOYIELD)) {
             free((OpenMediaData*)msg.lParam);
@@ -19562,7 +19746,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     m_bSettingUpMenus = false;
 
     // initiate graph destruction
-    if (m_pGraphThread && m_bOpenedThroughThread && !bGraphTerminated) {
+    if (m_bOpenedThroughThread && m_pGraphThread && m_pGraphThread->m_hThread && !bGraphTerminated) {
         // either opening or closing has to be blocked to prevent reentering them, closing is the better choice
         VERIFY(m_evClosePrivateFinished.Reset());
         VERIFY(m_pGraphThread->PostThreadMessage(CGraphThread::TM_CLOSE, (WPARAM)0, (LPARAM)0));
@@ -19574,6 +19758,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
         bool killprocess = true;
         bool processmsg = true;
         bool extendedwait = false;
+        int pm = 0;
         while (processmsg) {
             dwWait = MsgWaitForMultipleObjects(1, &handle, FALSE, waitdur, QS_POSTMESSAGE | QS_SENDMESSAGE);
             switch (dwWait) {
@@ -19582,14 +19767,18 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                     killprocess = false;
                     break;
                 case WAIT_OBJECT_0 + 1:
-                    MSG msg;
-                    if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                    pm = 0;
+                    while ((pm++ < 3) && PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
                         if (msg.message == WM_QUIT) {
                             processmsg = false;
+                        } else if (msg.message == 0) {
+                            // ignore
                         } else if (msg.message == WM_GRAPHNOTIFY) {
                             // ignore
                         } else {
-                            TRACE(_T("Dispatch WM during graph close: %d\n"), msg.message);
+                            if (msg.message != WM_PAINT && msg.message != WM_KEYUP && msg.message != WM_MOUSEMOVE && msg.message != EVENT_OBJECT_VALUECHANGE && msg.message != EVENT_OBJECT_PARENTCHANGE && msg.message != 0xc03e) {
+                                TRACE(_T("Dispatch WM during graph close: msg=0x%x wp=%u lp=%ld\n"), msg.message, msg.wParam, msg.lParam);
+                            }
                             TranslateMessage(&msg);
                             DispatchMessage(&msg);
                         }
@@ -19616,25 +19805,28 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                 if (tckill > cur) {
                     waitdur = tckill - cur;
                 } else {
-                    if (extendedwait || m_fFullScreen) {
+                    if (extendedwait || m_fFullScreen || s.hMasterWnd) {
                         processmsg = false;
                     } else {
-                        CString msg;
+                        CString timeoutmsg;
                         if (!m_pGB && m_pGB_preview) {
 #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10) && 0
                             if (CrashReporter::IsEnabled()) {
                                 throw 1;
                             }
 #endif
-                            msg = L"Timeout when closing preview filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                            timeoutmsg = L"Timeout when closing preview filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                         } else {
                             if (m_pMVRS) {
-                                msg = L"Timeout when closing filter graph.\n\nIf this happens often, try one of these solutions:\n- Use MPC Video renderer instead of MadVR\n- Use AMD GPU driver 24.8.1 (or older)(newer ones have compatibility issue with MadVR)\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                                timeoutmsg = L"Timeout when closing filter graph.\n\nIf this happens often, try one of these solutions:\n- Use MPC Video renderer instead of MadVR\n- Use AMD GPU driver 24.8.1 (or older)(newer ones have compatibility issue with MadVR)\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                             } else {
-                                msg = L"Timeout when closing filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
+                                timeoutmsg = L"Timeout when closing filter graph.\n\nClick YES to terminate player process. Click NO to wait longer (up to 15 seconds).";
                             }
                         }
-                        if (IDYES == AfxMessageBox(msg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
+                        if (USE_LOGGER(s)) {
+                            PLAYER_LOG(_T("CMainFrame::CloseMedia - Timeout when closing filter graph"));
+                        }
+                        if (IDYES == AfxMessageBox(timeoutmsg, MB_ICONEXCLAMATION | MB_YESNO, 0)) {
                             processmsg = false;
                         } else {
                             extendedwait = true;
@@ -19661,6 +19853,11 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     }
     s.MRU.current_rfe_hash.Empty();
 
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::CloseMedia - completed"));
+    }
+    FLUSH_LOGGER();
+
     TRACE(_T("Close media completed\n"));
 }
 
@@ -19676,7 +19873,7 @@ void CMainFrame::StartTunerScan(CAutoPtr<TunerScanData> pTSD)
     OpenSetupWindowTitle();
     SendNowPlayingToSkype();
 
-    if (m_pGraphThread) {
+    if (m_pGraphThread && m_pGraphThread->m_hThread) {
         m_pGraphThread->PostThreadMessage(CGraphThread::TM_TUNER_SCAN, (WPARAM)0, (LPARAM)pTSD.Detach());
     } else {
         DoTunerScan(pTSD);
@@ -19873,9 +20070,15 @@ LRESULT CMainFrame::OnCurrentChannelInfoUpdated(WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
-// ==== Added by CASIMIR666
 void CMainFrame::SetLoadState(MLS eState)
 {
+    if (eState == MLS::LOADING && m_eMediaLoadState != MLS::CLOSED || eState == MLS::FAILING && m_eMediaLoadState != MLS::LOADING) {
+        ASSERT(false);
+        if (USE_LOGGER(AfxGetAppSettings())) {
+            PLAYER_LOG(_T("CMainFrame::SetLoadState - unexpected state change: %d -> %d"), m_eMediaLoadState, eState);
+        }
+    }
+
     m_eMediaLoadState = eState;
     SendAPICommand(CMD_STATE, L"%d", static_cast<int>(eState));
     if (eState == MLS::LOADED) {
@@ -21377,6 +21580,10 @@ UINT CMainFrame::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
 {
     static BOOL bWasPausedBeforeSuspention;
 
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::OnPowerBroadcast"));
+    }
+
     switch (nPowerEvent) {
         case PBT_APMSUSPEND:            // System is suspending operation.
             TRACE(_T("OnPowerBroadcast - suspending\n"));   // For user tracking
@@ -21407,7 +21614,12 @@ UINT CMainFrame::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
 
 void CMainFrame::OnSessionChange(UINT nSessionState, UINT nId)
 {
-    if (AfxGetAppSettings().bLockNoPause) {
+    const auto& s = AfxGetAppSettings();
+    if (USE_LOGGER(s)) {
+        PLAYER_LOG(_T("CMainFrame::OnSessionChange"));
+    }
+
+    if (s.bLockNoPause) {
         return;
     }
 
@@ -21520,6 +21732,11 @@ void CMainFrame::UpdateControlState(UpdateControlTarget target)
             m_wndToolBar.m_volctrl.SetPageSize(s.nVolumeStep);
             break;
         case UPDATE_LOGO:
+            if (!m_wndView.IsCustomImgLoaded()) {
+                ClearArtFromViews();
+            }
+            break;
+        case UPDATE_MEDIA_ART:
             if (GetLoadState() == MLS::LOADED && m_fAudioOnly && s.bEnableCoverArt) {
                 CString filename = m_wndPlaylistBar.GetCurFileName();
                 CString filename_no_ext;
@@ -21552,7 +21769,7 @@ void CMainFrame::UpdateControlState(UpdateControlTarget target)
                         LoadArtToViews(img);
                         m_currentCoverPath = filedir;
                         m_currentCoverAuthor = author;
-                    } else if (!m_wndView.IsCustomImgLoaded()) {
+                    } else if (PathUtils::IsURL(filename)) {
                         ClearArtFromViews();
                     }
                 }
@@ -21882,16 +22099,20 @@ void CMainFrame::UpdateDXVAStatus()
 {
     CString DXVAInfo;
     // We only support getting info from LAV Video Decoder is that is what will be used 99% of the time
-    if (CComQIPtr<ILAVVideoStatus> pLAVVideoStatus = FindFilter(GUID_LAVVideo, m_pGB)) {
-        const LPCWSTR decoderName = pLAVVideoStatus->GetActiveDecoderName();
-        if (decoderName == nullptr || wcscmp(decoderName, L"avcodec") == 0 || wcscmp(decoderName, L"wmv9 mft") == 0 || wcscmp(decoderName, L"msdk mvc") == 0) {
-            DXVAInfo = _T("H/W Decoder  : None");
-        } else {
-            m_bUsingDXVA = true;
-            m_HWAccelType = CFGFilterLAVVideo::GetUserFriendlyDecoderName(decoderName);
-            DXVAInfo.Format(_T("H/W Decoder  : %s"), m_HWAccelType);
+    IBaseFilter* pBF = FindFilter(GUID_LAVVideo, m_pGB);
+    if (pBF) {
+        if (CComQIPtr<ILAVVideoStatus> pLAVVideoStatus = pBF) {
+            const LPCWSTR decoderName = pLAVVideoStatus->GetActiveDecoderName();
+            if (decoderName == nullptr || wcscmp(decoderName, L"avcodec") == 0 || wcscmp(decoderName, L"wmv9 mft") == 0 || wcscmp(decoderName, L"msdk mvc") == 0) {
+                DXVAInfo = _T("H/W Decoder  : None");
+            } else {
+                m_bUsingDXVA = true;
+                m_HWAccelType = CFGFilterLAVVideo::GetUserFriendlyDecoderName(decoderName);
+                DXVAInfo.Format(_T("H/W Decoder  : %s"), m_HWAccelType);
+            }
         }
-    } else {
+    }
+    if (DXVAInfo.IsEmpty()) {
         DXVAInfo = _T("H/W Decoder  : None / Unknown");
     }
     GetRenderersData()->m_strDXVAInfo = DXVAInfo;

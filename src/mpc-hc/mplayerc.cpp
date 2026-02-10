@@ -1686,9 +1686,24 @@ static BOOL CreateFakeVideoTS(LPCWSTR strIFOPath, LPWSTR strFakeFile, size_t nFa
 static CMPCThemeScrollBarRenderer* GetScrollBarRenderer(HWND hWnd) {
     CWnd* pWnd = CWnd::FromHandlePermanent(hWnd);
 
-    // Themed scrollbars require DWM composition (not available in classic mode)
-    if (pWnd && AppNeedsThemedControls() && !CMPCThemeUtil::IsBasicMode()) {
-        return DYNAMIC_DOWNCAST(CMPCThemePlayerListCtrl, pWnd);
+    // Themed scrollbars not available in classic mode = !IsThemeActive()
+    if (pWnd && AppNeedsThemedControls() && IsThemeActive()) {
+        CMPCThemeScrollBarRenderer* pRenderer = DYNAMIC_DOWNCAST(CMPCThemePlayerListCtrl, pWnd);
+        if (pRenderer) {
+            return pRenderer;
+        }
+        pRenderer = DYNAMIC_DOWNCAST(CMPCThemeEdit, pWnd);
+        if (pRenderer) {
+            return pRenderer;
+        }
+        pRenderer = DYNAMIC_DOWNCAST(CMPCThemeListBox, pWnd);
+        if (pRenderer) {
+            return pRenderer;
+        }
+        pRenderer = DYNAMIC_DOWNCAST(CMPCThemeTreeCtrl, pWnd);
+        if (pRenderer) {
+            return pRenderer;
+        }
     }
     return nullptr;
 }
@@ -2229,7 +2244,7 @@ BOOL CMPlayerCApp::InitInstance()
     try {
         pFrame = DEBUG_NEW CMainFrame;
         if (!pFrame || !pFrame->LoadFrame(IDR_MAINFRAME, WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE, nullptr, nullptr)) {
-            MessageBox(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
+            MessageBoxW(nullptr, L"MPC-HC encountered a problem during initialization", L"MPC-HC", MB_ICONERROR | MB_OK);
             return FALSE;
         }
     } catch (...) {
@@ -2243,7 +2258,13 @@ BOOL CMPlayerCApp::InitInstance()
         return FALSE;
     }
 
-    pFrame->m_controls.LoadState();
+    try {
+        pFrame->m_controls.LoadState();
+    } catch (...) {
+        MessageBoxW(nullptr, L"MPC-HC encountered a problem during initialization of its control bars", L"MPC-HC", MB_ICONERROR | MB_OK);
+        return FALSE;
+    }
+
     CPoint borderAdjustDirection;
     pFrame->SetDefaultWindowRect((m_s->nCLSwitches & CLSW_MONITOR) ? m_s->iMonitor : 0);
     if (!m_s->slFiles.IsEmpty()) {

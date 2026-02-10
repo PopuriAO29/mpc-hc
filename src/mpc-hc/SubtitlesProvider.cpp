@@ -390,7 +390,7 @@ SRESULT OpenSubtitles2::Login(const std::string& sUserName, const std::string& s
             }
         } else if (response.code == 401) {
             CString msg;
-            msg.FormatMessage(IDS_SUB_CREDENTIALS_ERROR, L"opensubtitles.com", static_cast<LPCWSTR>(UTF8To16(sUserName.c_str())));
+            msg.FormatMessage(IDS_OPENSUBTITLES_LOGIN_ERROR, static_cast<LPCWSTR>(UTF8To16(sUserName.c_str())));
             AfxMessageBox(msg, MB_ICONERROR | MB_OK);
         } else if (response.code >= 500 && response.code < 600) {
             CString msg;
