@@ -26,7 +26,6 @@
 #include "CMPCThemeRadioOrCheck.h"
 #include "CMPCThemeEdit.h"
 #include "CMPCThemeSpinButtonCtrl.h"
-#include "CMPCThemeSliderCtrl.h"
 
 
 // CPPageMisc dialog
@@ -36,15 +35,6 @@ class CPPageMisc : public CMPCThemePPageBase
     DECLARE_DYNAMIC(CPPageMisc)
 
 private:
-    int m_iBrightness;
-    int m_iContrast;
-    int m_iHue;
-    int m_iSaturation;
-    CString m_sBrightness;
-    CString m_sContrast;
-    CString m_sHue;
-    CString m_sSaturation;
-
     CMPCThemeRadioOrCheck m_updaterAutoCheckCtrl;
     CMPCThemeEdit m_updaterDelayCtrl;
     CMPCThemeSpinButtonCtrl m_updaterDelaySpin;
@@ -67,20 +57,14 @@ protected:
     DECLARE_MESSAGE_MAP()
 
 public:
-    CMPCThemeSliderCtrl m_SliContrast;
-    CMPCThemeSliderCtrl m_SliBrightness;
-    CMPCThemeSliderCtrl m_SliHue;
-    CMPCThemeSliderCtrl m_SliSaturation;
     CMPCThemeButton m_ExportKeys;
-    afx_msg void OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar);
-    afx_msg void OnBnClickedReset();
 
     afx_msg void OnUpdateDelayEditBox(CCmdUI* pCmdUI);
 
     afx_msg void OnResetSettings();
     afx_msg void OnExportSettings();
     afx_msg void OnExportKeys();
+    afx_msg void OnColorControls();
 
-    virtual void OnCancel();
     void AdjustDynamicWidgets();
 };

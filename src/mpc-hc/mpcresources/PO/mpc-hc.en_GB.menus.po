@@ -155,6 +155,10 @@ msgctxt "ID_VIEW_PRESETS_NORMAL"
 msgid "&Normal"
 msgstr "&Normal"
 
+msgctxt "ID_VIEW_PRESETS_CUSTOM"
+msgid "C&ustom"
+msgstr ""
+
 msgctxt "ID_VIEW_FULLSCREEN"
 msgid "F&ull Screen"
 msgstr "F&ull Screen"
@@ -355,17 +359,9 @@ msgctxt "ID_VIEW_FLUSHGPU_WAIT"
 msgid "&Wait for flushes"
 msgstr "&Wait for flushes"
 
-msgctxt "POPUP"
-msgid "R&eset"
-msgstr "R&eset"
-
 msgctxt "ID_VIEW_RESET_DEFAULT"
 msgid "Reset to &default renderer settings"
 msgstr "Reset to &default renderer settings"
-
-msgctxt "ID_VIEW_RESET_OPTIMAL"
-msgid "Reset to &optimal renderer settings"
-msgstr "Reset to &optimal renderer settings"
 
 msgctxt "POPUP"
 msgid "Video &Frame"
@@ -667,6 +663,10 @@ msgctxt "ID_FILTERS"
 msgid "&Filters"
 msgstr "&Filters"
 
+msgctxt "ID_COLOR_CONTROLS"
+msgid "&Color controls..."
+msgstr ""
+
 msgctxt "ID_SHADERS"
 msgid "S&haders"
 msgstr "S&haders"
@@ -678,6 +678,10 @@ msgstr "&Audio Track"
 msgctxt "ID_SUBTITLES"
 msgid "Su&btitle Track"
 msgstr "Su&btitle Track"
+
+msgctxt "ID_SUBTITLES_SECONDARY"
+msgid "Secondary Subtitle Track"
+msgstr ""
 
 msgctxt "ID_VIDEO_STREAMS"
 msgid "Vide&o Track"

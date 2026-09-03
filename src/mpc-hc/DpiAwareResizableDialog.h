@@ -87,8 +87,7 @@ protected:
     // State tracking
     UINT m_currentDpi;
     bool m_inDpiChange;
-    mutable const DLGTEMPLATE* m_cachedTemplate;
-    bool m_bGripVisible;
+    bool m_bMaximized;
     bool m_bSaveRestoreEnabled;
     bool m_bRestorationPending;
     CSize m_currentDluSize;     // Current window size in DLU (always up-to-date, persisted to registry)

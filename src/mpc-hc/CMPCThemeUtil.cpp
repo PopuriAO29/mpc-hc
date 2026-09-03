@@ -89,7 +89,9 @@ void CMPCThemeUtil::fulfillThemeReqs(CWnd* wnd, SpecialThemeCases specialCase /*
                 } else if (0 == _tcsicmp(windowClass, WC_BUTTON) && buttonType == BS_GROUPBOX) {
                     CMPCThemeGroupBox* pObject = DEBUG_NEW CMPCThemeGroupBox();
                     makeThemed(pObject, tChild);
-                    SetWindowTheme(tChild->GetSafeHwnd(), L"", L"");
+                    if (AppNeedsThemedControls()) { //only strip the visual style when we take over the painting
+                        SetWindowTheme(tChild->GetSafeHwnd(), L"", L"");
+                    }
                 } else if (0 == _tcsicmp(windowClass, WC_STATIC) && SS_ICON == staticStyle) { //don't touch icons for now
                 } else if (0 == _tcsicmp(windowClass, WC_STATIC) && SS_BITMAP == staticStyle) { //don't touch BITMAPS for now
                 } else if (0 == _tcsicmp(windowClass, WC_STATIC) && SS_OWNERDRAW == staticStyle) { //don't touch OWNERDRAW for now
@@ -185,7 +187,7 @@ void CMPCThemeUtil::makeThemed(CWnd* pObject, CWnd* tChild)
 
 void CMPCThemeUtil::EnableThemedDialogTooltips(CDialog* wnd)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         if (themedDialogToolTip.m_hWnd) {
             themedDialogToolTip.DestroyWindow();
         }
@@ -205,7 +207,7 @@ void CMPCThemeUtil::EnableThemedDialogTooltips(CDialog* wnd)
 }
 
 void CMPCThemeUtil::RedrawDialogTooltipIfVisible() {
-    if (AppIsThemeLoaded() && themedDialogToolTip.m_hWnd) {
+    if (AppNeedsThemedControls() && themedDialogToolTip.m_hWnd) {
         themedDialogToolTip.RedrawIfVisible();
     } else {
         AFX_MODULE_THREAD_STATE* pModuleThreadState = AfxGetModuleThreadState();
@@ -218,7 +220,7 @@ void CMPCThemeUtil::RedrawDialogTooltipIfVisible() {
 
 void CMPCThemeUtil::PlaceThemedDialogTooltip(UINT_PTR nID)
 {
-    if (AppIsThemeLoaded() && IsWindow(themedDialogToolTip)) {
+    if (AppNeedsThemedControls() && IsWindow(themedDialogToolTip)) {
         if (::IsWindow(themedDialogToolTipParent->GetSafeHwnd())) {
             CWnd* controlWnd = themedDialogToolTipParent->GetDlgItem(nID);
             themedDialogToolTip.SetHoverPosition(controlWnd);
@@ -228,7 +230,7 @@ void CMPCThemeUtil::PlaceThemedDialogTooltip(UINT_PTR nID)
 
 void CMPCThemeUtil::RelayThemedDialogTooltip(MSG* pMsg)
 {
-    if (AppIsThemeLoaded() && IsWindow(themedDialogToolTip)) {
+    if (AppNeedsThemedControls() && IsWindow(themedDialogToolTip)) {
         themedDialogToolTip.RelayEvent(pMsg);
     }
 }
@@ -446,7 +448,7 @@ HBRUSH CMPCThemeUtil::getCtlColorFileDialog(HDC hDC, UINT nCtlColor)
 
 HBRUSH CMPCThemeUtil::getCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         initHelperObjects();
         LRESULT lResult;
         if (pWnd->SendChildNotifyLastMsg(&lResult)) {
@@ -467,7 +469,7 @@ HBRUSH CMPCThemeUtil::getCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 
 bool CMPCThemeUtil::MPCThemeEraseBkgnd(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         CRect rect;
         pWnd->GetClientRect(rect);
         if (CTLCOLOR_DLG == nCtlColor) { //only supported "class" for now
@@ -1097,7 +1099,11 @@ bool CMPCThemeUtil::IsBasicMode()
     // Returns true if DWM composition is disabled (Windows 7 basic mode, not classic)
     BOOL bCompositionEnabled = FALSE;
     DwmIsCompositionEnabled(&bCompositionEnabled);
-    return !bCompositionEnabled && IsThemeActive();
+    if (!bCompositionEnabled) {
+        static BOOL tuIsThemeActive = IsThemeActive();
+        return tuIsThemeActive;
+    }
+    return false;
 }
 
 UINT CMPCThemeUtil::defaultLogo()
@@ -1140,7 +1146,7 @@ void CMPCThemeUtil::drawParentDialogBGClr(CWnd* wnd, CDC* pDC, CRect r, bool fil
 
 void CMPCThemeUtil::fulfillThemeReqs(CProgressCtrl* ctl)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         SetWindowTheme(ctl->GetSafeHwnd(), _T(""), _T(""));
         ctl->SetBarColor(CMPCTheme::ProgressBarColor);
         ctl->SetBkColor(CMPCTheme::ProgressBarBGColor);
@@ -1220,7 +1226,7 @@ CPoint CMPCThemeUtil::GetClientRectOffset(CWnd* window) {
     return offset;
 }
 
-void CMPCThemeUtil::AdjustDynamicWidgetPair(CWnd* window, int leftWidget, int rightWidget) {
+void CMPCThemeUtil::AdjustDynamicWidgetPair(CWnd* window, int leftWidget, int rightWidget, bool allowShrinkRight) {
     if (window && IsWindow(window->m_hWnd)) {
         DpiHelper dpiWindow;
         dpiWindow.Override(window->GetSafeHwnd());
@@ -1295,9 +1301,24 @@ void CMPCThemeUtil::AdjustDynamicWidgetPair(CWnd* window, int leftWidget, int ri
                 }
             }
             CRect cl = l, cr = r;
-            if (leftWantsRight > rightWantsLeft - dynamicSpace //overlaps; we will assume defaults are best
-                || (leftWantsRight < l.right && rightWantsLeft > r.left) // there is no need to resize
-                || (lType == WidgetPairText && DT_RIGHT == (leftW->GetStyle() & DT_RIGHT)) ) //right aligned text not supported, as the right edge is fixed
+            if (lType == WidgetPairText && DT_RIGHT == (leftW->GetStyle() & DT_RIGHT)) //right aligned text not supported, as the right edge is fixed
+            {
+                //do nothing
+            } else if (allowShrinkRight) {
+                //the left widget always gets the width its text needs, and the right widget yields from its left edge
+                //a combo box still lists full width text when the dropdown is opened, so a narrower closed state
+                //is an acceptable trade for a label which is not overdrawn
+                //never shrink the right widget below a usable minimum: the drop-down arrow plus a readable
+                //sample of its text, and never past half the width the template gave it
+                LONG minWidth = std::max(dpiWindow.GetSystemMetricsDPI(SM_CXVSCROLL) + dpiWindow.ScaleX(40), cr.Width() / 2);
+                minWidth = std::min(minWidth, (LONG)cr.Width()); //a widget that is already narrower than the floor just keeps its size
+                LONG want = std::min(leftWantsRight, r.right - minWidth - dynamicSpace);
+                if (want > l.left) { //a pathological translation clips the label rather than collapsing the right widget
+                    l.right = want;
+                    r.left = std::max(l.right + dynamicSpace, r.left); //only ever shrinks the right widget, never widens it
+                }
+            } else if (leftWantsRight > rightWantsLeft - dynamicSpace //overlaps; we will assume defaults are best
+                || (leftWantsRight < l.right && rightWantsLeft > r.left) ) // there is no need to resize
             {
                 //do nothing
             } else {

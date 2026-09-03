@@ -37,6 +37,8 @@ CPlayerStatusBar::CPlayerStatusBar(CMainFrame* pMainFrame)
     , m_time(pMainFrame->m_dpi, true, false)
     , m_bmid(0)
     , m_hIcon(0)
+    , m_rtNow(0LL)
+    , m_rtDur(0LL)
     , m_time_rect(-1, -1, -1, -1)
 {
     EventRouter::EventSelection fires;
@@ -152,13 +154,11 @@ void CPlayerStatusBar::EventCallback(MpcEvent ev)
 void CPlayerStatusBar::Relayout()
 {
     const CAppSettings& s = AfxGetAppSettings();
-    CString str;
-    CRect r, r2;
-
-    GetClientRect(r);
+    CRect rfull;
+    GetClientRect(rfull);
 
     if (s.bShowAudioFormatInStatusbar) {
-        r.DeflateRect(8, 4, 8, 4);
+        rfull.DeflateRect(8, 4, 8, 4);
     } else {
         BITMAP bm{};
         if (m_bm.m_hObject) {
@@ -166,47 +166,42 @@ void CPlayerStatusBar::Relayout()
         }
 #if 0
         if (m_type.GetIcon()) {
-            r2.SetRect(6, r.top + 4, 6 + m_pMainFrame->m_dpi.ScaleX(16), r.bottom - 4);
-            m_type.MoveWindow(r2);
+            CRect rtype;
+            rtype.SetRect(6, rfull.top + 4, 6 + m_pMainFrame->m_dpi.ScaleX(16), rfull.bottom - 4);
+            m_type.MoveWindow(rtype);
         }
 
-        r.DeflateRect(11 + m_pMainFrame->m_dpi.ScaleX(16), 5, bm.bmWidth + 8, 4);
+        rfull.DeflateRect(11 + m_pMainFrame->m_dpi.ScaleX(16), 5, bm.bmWidth + 8, 4);
 #else
-        r.DeflateRect(8, 4, bm.bmWidth + 8, 4);
+        rfull.DeflateRect(8, 4, bm.bmWidth + 8, 4);
 #endif
     }
 
     if (CDC* pDC = m_time.GetDC()) {
         CFont* pOld = pDC->SelectObject(&m_time.GetFont());
+        CRect rtime = rfull;
+        CString str;
         m_time.GetWindowText(str);
-        r2 = r;
-        r2.left = r2.right - pDC->GetTextExtent(str).cx;
-        m_time.MoveWindow(&r2, FALSE);
-        m_time_rect = r2;
+        // When the time is shown on the seekbar instead (modern theme only), collapse the
+        // status-bar time control (but keep its text so GetStatusTimer() still feeds the seekbar).
+        if (str.IsEmpty() || (s.nTimeOnSeekBar == TIME_ON_SEEKBAR_ALWAYS && AppIsThemeLoaded())) {
+            rtime.left = rtime.right;
+        } else {
+            rtime.left = rtime.right - pDC->GetTextExtent(str).cx;
+        }
+        m_time.MoveWindow(&rtime, FALSE);
+        m_time_rect = rtime;
         pDC->SelectObject(pOld);
         m_time.ReleaseDC(pDC);
-    } else {
-        ASSERT(FALSE);
     }
 
-    if (CDC* pDC = m_status.GetDC()) {
-        CFont* pOld = pDC->SelectObject(&m_status.GetFont());
-        m_status.GetWindowText(str);
-        r2 = r;
-        r2.right = r2.left + pDC->GetTextExtent(str).cx;
-        // If the text is too long, ensure it won't overlap
-        // with the timer. Ellipses will be added if needed.
-        if (r2.right >= m_time_rect.left) {
-            r2.right = m_time_rect.left - 1;
-        }
-        m_status.MoveWindow(&r2, FALSE);
-        pDC->SelectObject(pOld);
-        m_status.ReleaseDC(pDC);
-    } else {
-        ASSERT(FALSE);
+    CRect rstatus = rfull;
+    if (m_time_rect.left > 0) {
+        rstatus.right = m_time_rect.left - 8;
     }
+    m_status.MoveWindow(&rstatus, FALSE);
 
-    InvalidateRect(r);
+    InvalidateRect(rfull);
     UpdateWindow();
 }
 
@@ -282,6 +277,16 @@ CString CPlayerStatusBar::PreparePathStatusMessage(CPath path)
     return path;
 }
 
+REFERENCE_TIME CPlayerStatusBar::GetTimerCurPos()
+{
+    return m_rtNow;
+}
+
+REFERENCE_TIME CPlayerStatusBar::GetTimerDuration()
+{
+    return m_rtDur;
+}
+
 CString CPlayerStatusBar::GetStatusTimer() const
 {
     CString strResult;
@@ -307,6 +312,9 @@ void CPlayerStatusBar::SetStatusTimer(REFERENCE_TIME rtNow, REFERENCE_TIME rtDur
     CString str;
     CString posstr;
     const CAppSettings& s = AfxGetAppSettings();
+
+    m_rtNow = rtNow;
+    m_rtDur = rtDur;
 
     if (rtDur > 0) {
         REFERENCE_TIME rtRem = rtDur - rtNow;
@@ -460,7 +468,10 @@ void CPlayerStatusBar::OnPaint()
 
     dc.FillSolidRect(&r, 0);
 
-    if (m_bm.m_hObject) {
+    // Only draw the audio-channel bitmap when Relayout actually reserves room for it (Audio Info off).
+    // When Audio Info is on, no space is reserved and the time control overlaps this area; drawing the
+    // bitmap here would leave it exposed once the time collapses for "time on seekbar" (#3256).
+    if (m_bm.m_hObject && !AfxGetAppSettings().bShowAudioFormatInStatusbar) {
         BITMAP bm;
         m_bm.GetBitmap(&bm);
         CDC memdc;
@@ -567,6 +578,12 @@ void CPlayerStatusBar::OnContextMenu(CWnd* pWnd, CPoint point)
         return __super::OnContextMenu(pWnd, point);
     }
 
+    ShowTimerOptionsMenu(this, point);
+}
+
+void CPlayerStatusBar::ShowTimerOptionsMenu(CWnd* pOwner, CPoint screenPt)
+{
+    // Shared by the status-bar time control and the seekbar time section (#3256).
     CAppSettings& s = AfxGetAppSettings();
 
     enum {
@@ -575,6 +592,7 @@ void CPlayerStatusBar::OnContextMenu(CWnd* pWnd, CPoint point)
         SHOW_PERCENTAGE
     };
 
+    m_timerMenu.DestroyMenu();
     m_timerMenu.CreatePopupMenu();
     m_timerMenu.AppendMenu(MF_STRING | MF_ENABLED | (s.fRemainingTime ? MF_CHECKED : MF_UNCHECKED), REMAINING_TIME, ResStr(IDS_TIMER_REMAINING_TIME));
     UINT nFlags = MF_STRING;
@@ -587,7 +605,7 @@ void CPlayerStatusBar::OnContextMenu(CWnd* pWnd, CPoint point)
     m_timerMenu.AppendMenu(MF_STRING | MF_ENABLED | (s.bTimerShowPercentage ? MF_CHECKED : MF_UNCHECKED), SHOW_PERCENTAGE, ResStr(IDS_TIMER_SHOW_PERCENTAGE));
 
     m_timerMenu.fulfillThemeReqs();
-    switch (m_timerMenu.TrackPopupMenu(TPM_LEFTBUTTON | TPM_RETURNCMD, point.x, point.y, this)) {
+    switch (m_timerMenu.TrackPopupMenu(TPM_LEFTBUTTON | TPM_RETURNCMD, screenPt.x, screenPt.y, pOwner)) {
         case REMAINING_TIME:
             s.fRemainingTime = !s.fRemainingTime;
             m_eventc.FireEvent(MpcEvent::STREAM_POS_UPDATE_REQUEST);

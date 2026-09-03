@@ -221,6 +221,56 @@ CStringW ShortenURL(const CStringW url, int targetLength, bool returnHostnameIfT
     return t;
 }
 
+static CStringW SanitizeMenuLabelPart(const CStringW& text, int maxChars)
+{
+    CStringW label;
+    for (int i = 0; i < text.GetLength(); i++) {
+        const wchar_t c = text[i];
+        // A tab starts the right-aligned accelerator column of a menu item, so
+        // a label carrying one would render as two columns; nothing else below
+        // the space is printable there either.
+        label += (c < L' ' || c == 0x7F) ? L' ' : c;
+    }
+    label.Trim();
+
+    if (maxChars > 0 && label.GetLength() > maxChars) {
+        int cut = maxChars - 1; // the ellipsis takes the last character
+        if (cut > 0 && label[cut - 1] >= 0xD800 && label[cut - 1] <= 0xDBFF) {
+            cut--; // never leave half of a surrogate pair behind
+        }
+        label = label.Left(cut);
+        label.TrimRight();
+        label += L'\x2026';
+    }
+
+    // last, so that the escaping is not what the length was spent on
+    label.Replace(L"&", L"&&");
+    return label;
+}
+
+CStringW SanitizeMenuLabel(const CStringW& text, int maxChars, bool allowColumn)
+{
+    CStringW label;
+
+    const int tab = allowColumn ? text.Find(L'\t') : -1;
+    if (tab >= 0) {
+        // The caller composed its own right-aligned column, so keep the first
+        // tab, but only that one: the text cannot manufacture a column of its
+        // own. The right half is our own short text, so it is not truncated.
+        label = SanitizeMenuLabelPart(text.Left(tab), maxChars);
+        label += L'\t';
+        label += SanitizeMenuLabelPart(text.Mid(tab + 1), 0);
+    } else {
+        label = SanitizeMenuLabelPart(text, maxChars);
+    }
+
+    if (label.IsEmpty()) {
+        label = L" "; // a zero-length label gives the item nothing to measure
+    }
+
+    return label;
+}
+
 CString ExtractTag(CString tag, CMapStringToString& attribs, bool& fClosing)
 {
     tag.Trim();
@@ -352,8 +402,42 @@ int LastIndexOfCString(const CString& text, const CString& pattern) {
     }
 }
 
+// Remove characters that are illegal in file names, together with the
+// substitutes download tools commonly use when sanitizing them (youtube-dl
+// replaces '/' with '_', deletes '?', expands ':' to " -", turns '"' into
+// '\''). Removing both the originals and the substitutes from both strings
+// lets a title still match its sanitized file name.
+static CString StripIgnoredForNameSimilarity(const CString& str) {
+    CString ret;
+    LPTSTR buf = ret.GetBuffer(str.GetLength());
+    int len = 0;
+    for (int i = 0; i < str.GetLength(); i++) {
+        TCHAR c = str[i];
+        if (c > _T(' ') && !_tcschr(_T("/\\:*?\"<>|_-.'"), c)) {
+            buf[len++] = c;
+        }
+    }
+    ret.ReleaseBufferSetLength(len);
+    return ret;
+}
+
 bool IsNameSimilar(const CString& title, const CString& fileName) {
     if (fileName.Find(title.Left(25)) > -1) return true;
+
+    // Titles of the form "ReleaseGroup | FileNameWithoutExt" contain the file
+    // name instead of the other way around. Treat those as similar when the
+    // title is not much longer than the file name itself.
+    int dot = fileName.ReverseFind(_T('.'));
+    CString baseName = dot > 0 ? fileName.Left(dot) : fileName;
+    if (baseName.GetLength() >= 10 && title.Find(baseName) > -1
+            && title.GetLength() <= baseName.GetLength() + 25) {
+        return true;
+    }
+
+    CString strippedTitle = StripIgnoredForNameSimilarity(title);
+    if (strippedTitle.GetLength() >= 10) {
+        return StripIgnoredForNameSimilarity(fileName).Find(strippedTitle.Left(25)) > -1;
+    }
     return false;
 }
 
@@ -416,4 +500,15 @@ bool StartsWithNoCase(CStringW str, CStringW prefix) {
     const int str_len = str.GetLength();
     const int prefix_len = prefix.GetLength();
     return str_len >= prefix_len && 0 == str.Left(prefix_len).CompareNoCase(prefix);
+}
+
+CStringW& TrimLeadingUTF16BOM(CStringW& str)
+{
+    if (str.GetLength() >= 2) {
+        int i = 0;
+        while (i++ < 2 && (str.GetAt(0) == 0xFFEF || str.GetAt(0) == 0xFEFF)) {
+            str.Delete(0, 1);
+        }
+    }
+    return str;
 }

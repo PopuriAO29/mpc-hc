@@ -81,7 +81,7 @@ configure() {
     --disable-muxers                \
     --enable-muxer=spdif            \
     --disable-bsfs                  \
-    --enable-bsf=extract_extradata  \
+    --enable-bsf=extract_extradata,dovi_split  \
     --disable-avdevice              \
     --disable-encoders              \
     --disable-devices               \
@@ -92,6 +92,7 @@ configure() {
     --enable-dxva2                  \
     --enable-zlib                   \
     --build-suffix=-lav             \
+    --disable-stripping             \
     --arch=${arch}"
 
   if [ "${COMPILER}" == "GCC" ]; then
@@ -104,12 +105,11 @@ configure() {
     --enable-libspeex               \
     --enable-libopencore-amrnb      \
     --enable-libopencore-amrwb      \
-    --enable-libxml2                \
-    --disable-stripping"
+    --enable-libxml2"
   fi
   
   if [ "${COMPILER}" == "MSVC" ]; then
-    OPTIONS="${OPTIONS} --enable-schannel"
+    OPTIONS="${OPTIONS} --enable-schannel --disable-decoder=sanm"
   fi
   
   EXTRA_LDFLAGS=""

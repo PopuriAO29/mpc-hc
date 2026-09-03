@@ -4,14 +4,15 @@
 # Translators:
 # MPC HC <adiposegithub@gmail.com>, 2020
 # Ali Kömesöğütlü <byzlo685@gmail.com>, 2020
-# Mücahid Aksel <mucahidaksel@gmail.com>, 2025
+# Mücahid Aksel <mucahidaksel@gmail.com>, 2026
+# Transifex sync (Studio), 2026
 # 
 msgid ""
 msgstr ""
 "Project-Id-Version: MPC-HC\n"
-"POT-Creation-Date: 2025-04-26 17:38:13+0000\n"
-"PO-Revision-Date: 2020-01-02 07:46+0000\n"
-"Last-Translator: Mücahid Aksel <mucahidaksel@gmail.com>, 2025\n"
+"POT-Creation-Date: 2026-07-18 21:00:08+0000\n"
+"PO-Revision-Date: 2026-08-31 14:37+0000\n"
+"Last-Translator: Transifex sync (Studio)\n"
 "Language-Team: Turkish (https://app.transifex.com/mpchc/teams/106126/tr/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -117,7 +118,7 @@ msgstr "&Bilgi"
 
 msgctxt "ID_VIEW_STATISTICS"
 msgid "&Statistics"
-msgstr "İs&tatistikler"
+msgstr "İs&tatistik"
 
 msgctxt "ID_VIEW_STATUS"
 msgid "St&atus"
@@ -125,7 +126,7 @@ msgstr "Du&rum"
 
 msgctxt "ID_VIEW_SUBRESYNC"
 msgid "Su&bresync"
-msgstr "Altyazı eşzamanla"
+msgstr "Altyazı eşzamanlayıcı"
 
 msgctxt "ID_VIEW_PLAYLIST"
 msgid "Pla&ylist"
@@ -154,6 +155,10 @@ msgstr "Dertop"
 msgctxt "ID_VIEW_PRESETS_NORMAL"
 msgid "&Normal"
 msgstr "&Normal"
+
+msgctxt "ID_VIEW_PRESETS_CUSTOM"
+msgid "C&ustom"
+msgstr "&Özel"
 
 msgctxt "ID_VIEW_FULLSCREEN"
 msgid "F&ull Screen"
@@ -193,7 +198,7 @@ msgstr "&Yırtılmayı sına"
 
 msgctxt "ID_VIEW_DISPLAY_RENDERER_STATS"
 msgid "&Display Statistics"
-msgstr "İ&statistikleri göster"
+msgstr "İ&statistiği göster"
 
 msgctxt "ID_VIEW_OSD_DISPLAY_TIME"
 msgid "Display Current T&ime"
@@ -325,7 +330,7 @@ msgstr "&VSync"
 
 msgctxt "ID_VIEW_VSYNCACCURATE"
 msgid "&Accurate VSync"
-msgstr "&Kesin VSync"
+msgstr "&Hassas VSync"
 
 msgctxt "ID_VIEW_ALTERNATIVEVSYNC"
 msgid "A&lternative VSync"
@@ -345,7 +350,7 @@ msgstr "&GPU denetimi"
 
 msgctxt "ID_VIEW_FLUSHGPU_BEFOREVSYNC"
 msgid "Flush GPU &before VSync"
-msgstr "VSync'den önce GPU'yu sıfırla"
+msgstr "VSync öncesi GPU'yu temizle"
 
 msgctxt "ID_VIEW_FLUSHGPU_AFTERPRESENT"
 msgid "Flush GPU &after Present"
@@ -355,17 +360,9 @@ msgctxt "ID_VIEW_FLUSHGPU_WAIT"
 msgid "&Wait for flushes"
 msgstr "&Sıfırlama için bekle"
 
-msgctxt "POPUP"
-msgid "R&eset"
-msgstr "S&ıfırla"
-
 msgctxt "ID_VIEW_RESET_DEFAULT"
 msgid "Reset to &default renderer settings"
 msgstr "&Olağan işleyici ayarlarına dön"
-
-msgctxt "ID_VIEW_RESET_OPTIMAL"
-msgid "Reset to &optimal renderer settings"
-msgstr "En &uygun işleyici ayarlarına dön"
 
 msgctxt "POPUP"
 msgid "Video &Frame"
@@ -667,6 +664,10 @@ msgctxt "ID_FILTERS"
 msgid "&Filters"
 msgstr "&Filtreler"
 
+msgctxt "ID_COLOR_CONTROLS"
+msgid "&Color controls..."
+msgstr "Renk a&yarları..."
+
 msgctxt "ID_SHADERS"
 msgid "S&haders"
 msgstr "T&onlayıcılar"
@@ -678,6 +679,10 @@ msgstr "&Ses parçası"
 msgctxt "ID_SUBTITLES"
 msgid "Su&btitle Track"
 msgstr "&Altyazı parçası"
+
+msgctxt "ID_SUBTITLES_SECONDARY"
+msgid "Secondary Subtitle Track"
+msgstr "İkincil altyazı parçası"
 
 msgctxt "ID_VIDEO_STREAMS"
 msgid "Vide&o Track"

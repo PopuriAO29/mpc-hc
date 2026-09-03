@@ -136,6 +136,8 @@ public:
     bool PreviewSupportsRotation() { return m_bPreviewSupportsRotation; }
     static CUnknown* WINAPI GetMpcAudioRendererInstance(LPUNKNOWN lpunk, HRESULT* phr);
 
+    QWORD GetFileVersionFromRegCLSID(CString clsid);
+
     void SetUserAgent(CString ua) { m_useragent = ua; };
     void SetReferrer(CString ref) { m_referrer = ref; };
 
@@ -157,7 +159,6 @@ public:
     void InsertOtherInternalSourcefilters(bool IsPreview = false);
     void InsertSubtitleFilters(bool IsPreview = false);
     void InsertBlockedFilters();
-    void InsertBroadcomDecoder();
 
 public:
 	CFGManagerCustom(LPCWSTR pClassName, LPCWSTR pInputFileURL, HWND hWnd = 0, bool IsPreview = false);

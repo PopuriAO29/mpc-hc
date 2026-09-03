@@ -339,7 +339,10 @@ extern "C"
     #ifdef MEDIAINFO_GLIBC
         MediaInfo_Module = g_module_open(MEDIAINFODLL_NAME, G_MODULE_BIND_LAZY);
     #elif defined(_WIN32) || defined(WIN32)
-        MediaInfo_Module = LoadLibrary(MEDIAINFODLL_NAME);
+        MediaInfo_Module = LoadLibraryEx(MEDIAINFODLL_NAME, NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+        if (!MediaInfo_Module) {
+            MediaInfo_Module = LoadLibrary(MEDIAINFODLL_NAME);
+        }
     #else
         #ifdef MACOSX
             MediaInfo_Module = dlopen("@executable_path/" MEDIAINFODLL_NAME, RTLD_LAZY);
@@ -556,7 +559,7 @@ namespace MediaInfoDLL
     {
     public :
         MediaInfo()        {if (!MediaInfo_Module) MediaInfoDLL_Load(); if (!MediaInfo_Module || !MediaInfo_New) {Handle = NULL; return;}; Handle = MediaInfo_New();}; // MPC_HC fix
-        ~MediaInfo()       {MEDIAINFO_TEST_VOID; MediaInfo_Delete(Handle);};
+        ~MediaInfo()       {MEDIAINFO_TEST_VOID; if (MediaInfo_Delete) MediaInfo_Delete(Handle);};
 
         //File
         size_t Open(const String &File) {MEDIAINFO_TEST_INT; return MediaInfo_Open(Handle, File.c_str());};

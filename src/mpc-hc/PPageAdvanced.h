@@ -27,6 +27,7 @@
 #include <memory>
 #include <map>
 #include <deque>
+#include <vector>
 #include "CMPCThemeComboBox.h"
 #include "CMPCThemeSpinButtonCtrl.h"
 #include "CMPCThemePlayerListCtrl.h"
@@ -81,6 +82,9 @@ public:
     bool GetValue() const {
         return currentValue;
     }
+    bool GetDefaultValue() const {
+        return defaultValue;
+    }
     void Apply() {
         settingReference = currentValue;
     }
@@ -116,6 +120,9 @@ public:
     }
     int GetValue() const {
         return currentValue;
+    }
+    int GetDefaultValue() const {
+        return defaultValue;
     }
     void Apply() {
         settingReference = currentValue;
@@ -172,12 +179,17 @@ public:
 };
 
 class CPPageAdvanced : public CMPCThemePPageBase
+    , public CMPCThemeListCtrlCustomInterface
 {
     DECLARE_DYNAMIC(CPPageAdvanced)
 public:
     CPPageAdvanced();
     virtual ~CPPageAdvanced() = default;
     virtual void DoDPIChanged();
+    virtual void GetCustomTextColors(INT_PTR nItem, int iSubItem, COLORREF& clrText, COLORREF& clrTextBk, bool& overrideSelectedBG);
+    virtual void DoCustomPrePaint() {};
+    virtual void GetCustomGridColors(int nItem, COLORREF& horzGridColor, COLORREF& vertGridColor) {};
+    virtual bool UseCustomGrid() { return false; };
 
 private:
     enum { IDD = IDD_PPAGEADVANCED };
@@ -193,6 +205,7 @@ private:
         BLOCK_VSFILTER,
         BLOCK_RDP,
         LOOP_FOLDER_NEXT_FILE,
+        NEXT_FILE_SORT_BY_DATE,
         OSD_TRANSPARENCY,
         OSD_BORDER,
         USE_YDL,
@@ -208,6 +221,7 @@ private:
         SAVEIMAGE_CURRENTTIME,
         SNAPSHOTSUBTITLES,
         SNAPSHOTKEEPVIDEOEXTENSION,
+        SUB_SECONDARY_VERT_POS,
         ADD_LANGCODE_WHEN_SAVE_SUBTITLES,
         USE_TITLE_IN_RECENT_FILE_LIST,
         MOUSE_LEFTUP_DELAY,
@@ -234,7 +248,14 @@ private:
         CONFIRM_FILE_DELETE,
         LIBASS_FOR_SRT,
         SHOW_VOLUME_PERCENTAGE,
+        STARTUP_PRESET,
+        TIME_ON_SEEKBAR_LEFT,
+        HISTORY_IN_APPDATA,
+        HISTORY_EXCLUDE_FILTER,
+        HISTORY_MAX_AGE_DAYS,
     };
+
+    static constexpr DWORD_PTR HEADER_ITEM_DATA = (DWORD_PTR)-1;
 
     enum {
         COL_NAME,
@@ -255,7 +276,13 @@ private:
     CString m_strFalse;
 
     void InitSettings();
+    // The widest value the setting can ever display, and whether it would be drawn flagged (bold).
+    std::pair<CString, bool> GetWidestValue(const std::shared_ptr<SettingsBase>& pItem, CDC* pDC);
+    void AutoSizeValueColumn();
     bool IsDefault(ADVANCED_SETTINGS) const;
+    inline bool IsHeaderRow(int iItem) const {
+        return m_list.GetItemData(iItem) == HEADER_ITEM_DATA;
+    };
     inline const int GetListSelectionMark() const {
         const int iItem = m_list.GetSelectionMark();
         if (iItem != m_lastSelectedItem) {

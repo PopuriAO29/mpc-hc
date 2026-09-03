@@ -652,6 +652,7 @@ static void WebVTT2SSA(CStringW& str) {
 static bool OpenVTT(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet) {
     CStringW buff;
     file->ReadString(buff);
+    TrimLeadingUTF16BOM(buff);
     if (buff.Left(6).Compare(L"WEBVTT") != 0) {
         return false;
     }
@@ -828,7 +829,12 @@ static bool OpenVTT(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet) {
 bool OpenSubRipper(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet)
 {
     CStringW buff, start, end;
+    bool first_line = true;
     while (file->ReadString(buff)) {
+        if (first_line) {
+            TrimLeadingUTF16BOM(buff);
+            first_line = false;
+        }
         FastTrimRight(buff);
         if (buff.IsEmpty()) {
             continue;
@@ -1672,10 +1678,11 @@ static bool LoadFont(const CString& font)
             }
         }
 
-        AddFontResource(fn);
+        int count = AddFontResource(fn);
+        return count > 0;
+    } else {
+        return !hFont;
     }
-
-    return true;
 }
 
 static bool LoadUUEFont(CTextFile* file, CString firstfontname)
@@ -1766,6 +1773,9 @@ bool OpenSubStationAlpha(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet)
     ret.event_param = event_param_v3;
 
     while (file->ReadString(buff)) {
+        if (first_line) {
+            TrimLeadingUTF16BOM(buff);
+        }
         FastTrim(buff);
         if (buff.IsEmpty() || buff.GetAt(0) == L';') {
             continue;

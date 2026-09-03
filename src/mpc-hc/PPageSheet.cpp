@@ -60,13 +60,11 @@ CPPageSheet::CPPageSheet(LPCTSTR pszCaption, IFilterGraph* pFG, CWnd* pParentWnd
     AddPage(&m_output);
     AddPage(&m_shaders);
     AddPage(&m_fullscreen);
-    AddPage(&m_sync);
     AddPage(&m_tuner);
 #if USE_LAVFILTERS
     AddPage(&m_internalfilters);
 #endif
     AddPage(&m_audioswitcher);
-    AddPage(&m_audiorenderer);
 
     AddPage(&m_externalfilters);
     AddPage(&m_subtitles);
@@ -92,7 +90,7 @@ CPPageSheet::CPPageSheet(LPCTSTR pszCaption, IFilterGraph* pFG, CWnd* pParentWnd
         }
     }
 
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         CMPCThemeUtil::ModifyTemplates(this, RUNTIME_CLASS(CPPageShaders), IDC_LIST1, LBS_OWNERDRAWFIXED | LBS_HASSTRINGS);
         CMPCThemeUtil::ModifyTemplates(this, RUNTIME_CLASS(CPPageShaders), IDC_LIST2, LBS_OWNERDRAWFIXED | LBS_HASSTRINGS);
         CMPCThemeUtil::ModifyTemplates(this, RUNTIME_CLASS(CPPageShaders), IDC_LIST3, LBS_OWNERDRAWFIXED | LBS_HASSTRINGS);
@@ -148,7 +146,7 @@ CMPCThemeTreeCtrl* CPPageSheet::CreatePageTreeObject()
 
 void CPPageSheet::SetTreeCtrlTheme(CTreeCtrl* ctrl)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         ((CMPCThemeTreeCtrl*)ctrl)->fulfillThemeReqs();
     } else {
         __super::SetTreeCtrlTheme(ctrl);
@@ -161,6 +159,8 @@ BEGIN_MESSAGE_MAP(CPPageSheet, CTreePropSheet)
     ON_WM_CTLCOLOR()
     ON_WM_DRAWITEM()
     ON_MESSAGE(WM_DPICHANGED, OnDpiChanged)
+    ON_NOTIFY(TVN_SELCHANGEDA, 0x7EEE, OnPageTreeSelChanged)
+    ON_NOTIFY(TVN_SELCHANGEDW, 0x7EEE, OnPageTreeSelChanged)
 END_MESSAGE_MAP()
 
 
@@ -205,6 +205,31 @@ void CPPageSheet::OnApply()
     }
 }
 
+// TreePropSheet sets item data to (DWORD_PTR)-1 for nodes that have no page of their own
+bool CPPageSheet::IsParentOnlyNode(CTreeCtrl* pTree, HTREEITEM hItem)
+{
+    return hItem && pTree->GetItemData(hItem) == (DWORD_PTR)-1;
+}
+
+void CPPageSheet::OnPageTreeSelChanged(NMHDR* pNMHDR, LRESULT* pResult)
+{
+    // Let the base class update the caption, then override it with the first child's
+    // text when a parent-only node is selected (e.g. show "General" instead of "Player").
+    CTreePropSheet::OnPageTreeSelChanged(pNMHDR, pResult);
+
+    if (m_pFrame && m_pFrame->GetShowCaption()) {
+        if (CTreeCtrl* pTree = GetPageTreeControl()) {
+            HTREEITEM hItem = pTree->GetSelectedItem();
+            if (IsParentOnlyNode(pTree, hItem)) {
+                HTREEITEM hChild = pTree->GetChildItem(hItem);
+                if (hChild) {
+                    m_pFrame->SetCaption(pTree->GetItemText(hChild));
+                }
+            }
+        }
+    }
+}
+
 TreePropSheet::CPropPageFrame* CPPageSheet::CreatePageFrame()
 {
     if (AppIsThemeLoaded()) {
@@ -217,7 +242,7 @@ TreePropSheet::CPropPageFrame* CPPageSheet::CreatePageFrame()
 
 HBRUSH CPPageSheet::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
-    if (AppIsThemeLoaded()) {
+    if (AppNeedsThemedControls()) {
         LRESULT lResult;
         if (pWnd->SendChildNotifyLastMsg(&lResult)) {
             return (HBRUSH)lResult;

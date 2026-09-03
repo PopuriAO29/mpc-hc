@@ -69,11 +69,7 @@ private:
     CString m_WinLircAddr;
     CMPCThemeEdit m_WinLircEdit;
     CMPCThemeStaticLink m_WinLircLink;
-    BOOL m_fUIce;
-    CString m_UIceAddr;
-    CMPCThemeEdit m_UIceEdit;
     CMPCThemeEdit filterEdit;
-    CMPCThemeStaticLink m_UIceLink;
     UINT_PTR m_nStatusTimerID, filterTimerID;
     BOOL m_fGlobalMedia;
 

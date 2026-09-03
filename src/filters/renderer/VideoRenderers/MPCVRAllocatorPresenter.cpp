@@ -239,7 +239,7 @@ CStringW GetInternalLibraryPath() {
 
 bool CMPCVRAllocatorPresenter::CheckVersion(CString filterPath) {
     QWORD fversion = FileVersionInfo::GetFileVersionNum(filterPath);
-    return fversion >= MPCVR_FILTERS_VERSION(0, 7, 0, 0);
+    return fversion >= MPCVR_FILTERS_VERSION(0, 9, 0, 0);
 }
 
 bool CMPCVRAllocatorPresenter::HasInternalMPCVRFilter() {
@@ -390,8 +390,53 @@ STDMETHODIMP_(SIZE) CMPCVRAllocatorPresenter::GetVideoSize(bool bCorrectAR) cons
     SIZE size = {0, 0};
 
     if (!bCorrectAR) {
-        if (CComQIPtr<IBasicVideo> pBV = m_pMPCVR) {
-            pBV->GetVideoSize(&size.cx, &size.cy);
+        __int64 ovs = 0;
+        CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pMPCVR;
+        // MPCVR 0.10.8.2564 and newer
+        static_assert(sizeof(__int64) == sizeof(size));
+        if (pIExFilterConfig && SUCCEEDED(pIExFilterConfig->Flt_GetInt64("originalVideoSize", (__int64*)&size))) {
+            return size;
+        }
+        // MPCVR 0.10.2.2540 and newer return an aspect ratio corrected size through
+        // IBasicVideo::GetVideoSize (matching VMR-9/madVR behavior, needed by the
+        // DVD Navigator), so read the coded frame size from the input connection.
+        if (CComQIPtr<IBaseFilter> pBF = m_pMPCVR) {
+            if (CComPtr<IPin> pPin = GetFirstPin(pBF, PINDIR_INPUT)) {
+                CMediaType mt;
+                if (SUCCEEDED(pPin->ConnectionMediaType(&mt)) && mt.pbFormat) {
+                    RECT rcSource = {};
+                    if (mt.formattype == FORMAT_VideoInfo2) {
+                        const VIDEOINFOHEADER2* vih2 = (VIDEOINFOHEADER2*)mt.pbFormat;
+                        rcSource = vih2->rcSource;
+                    } else if (mt.formattype == FORMAT_VideoInfo) {
+                        const VIDEOINFOHEADER* vih = (VIDEOINFOHEADER*)mt.pbFormat;
+                        rcSource = vih->rcSource;
+                    }
+                    size.cx = rcSource.right - rcSource.left;
+                    size.cy = rcSource.bottom - rcSource.top;
+                }
+            }
+        }
+        if (size.cx > 0 && size.cy > 0) {
+            if (pIExFilterConfig) {
+#if _DEBUG
+                SIZE bv_size = {0, 0};
+                if (CComQIPtr<IBasicVideo> pBV = m_pMPCVR) {
+                    pBV->GetVideoSize(&bv_size.cx, &bv_size.cy);
+                }
+#endif
+                int rotation = 0;
+                if (SUCCEEDED(pIExFilterConfig->Flt_GetInt("rotation", &rotation)) && (rotation == 90 || rotation == 270)) {
+                    std::swap(size.cx, size.cy);
+                    ASSERT(size.cx >= bv_size.cx && size.cy == bv_size.cy);
+                } else {
+                    ASSERT(size.cx <= bv_size.cx && size.cy == bv_size.cy);
+                }
+            }
+        } else {
+            if (CComQIPtr<IBasicVideo> pBV = m_pMPCVR) {
+                pBV->GetVideoSize(&size.cx, &size.cy);
+            }
         }
     } else {
         if (CComQIPtr<IBasicVideo2> pBV2 = m_pMPCVR) {
@@ -446,11 +491,12 @@ STDMETHODIMP CMPCVRAllocatorPresenter::ClearPixelShaders(int target)
 {
 	HRESULT hr = E_FAIL;
 
-	if (TARGET_SCREEN == target) {
-		// experimental
-		if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pMPCVR) {
-			hr = pIExFilterConfig->Flt_SetBool("cmd_clearPostScaleShaders", true);
-		}
+	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pMPCVR) {
+        if (TARGET_SCREEN == target) {
+            hr = pIExFilterConfig->Flt_SetBool("cmd_clearPostScaleShaders", true);
+        } else {
+            hr = pIExFilterConfig->Flt_SetBool("cmd_clearPreScaleShaders", true);
+        }
 	}
 	return hr;
 }
@@ -482,8 +528,7 @@ STDMETHODIMP CMPCVRAllocatorPresenter::AddPixelShader(int target, LPCWSTR name, 
 		iProfile = 4;
 	}
 
-	if (codesize && TARGET_SCREEN == target) {
-		// experimental
+	if (codesize) {
 		if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pMPCVR) {
 			int rtype = 0;
 			hr = pIExFilterConfig->Flt_GetInt("renderType", &rtype);
@@ -501,7 +546,12 @@ STDMETHODIMP CMPCVRAllocatorPresenter::AddPixelShader(int target, LPCWSTR name, 
 					}
 					p = WriteChunk(p, FCC('CODE'), codesize, (BYTE*)sourceCode);
 
-					hr = pIExFilterConfig->Flt_SetBin("cmd_addPostScaleShader", (LPVOID)pBuf, size);
+                    if (target == TARGET_FRAME) {
+                        hr = pIExFilterConfig->Flt_SetBin("cmd_addPreScaleShader", (LPVOID)pBuf, size);
+                    }
+                    if (target == TARGET_SCREEN || hr != S_OK) {
+                        hr = pIExFilterConfig->Flt_SetBin("cmd_addPostScaleShader", (LPVOID)pBuf, size);
+                    }
 					LocalFree(pBuf);
 				}
 			}

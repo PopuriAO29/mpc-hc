@@ -217,6 +217,13 @@ bool CYoutubeDLInstance::Run(CString url)
                 // abort without showing error message
                 return false;
             }
+            if (err.Find(_T("HTTP Error 429")) >= 0) {
+                err = L"HTTP Error 429: Too Many Requests";
+            } else if (err.Find(_T("HTTP Error 403")) >= 0) {
+                err = L"HTTP Error 403: Access Denied";
+            } else if (err.GetLength() > 1000) {
+                err = err.Left(1000) + L" <...>";
+            }
             err = _T("yt-dlp/youtube-dl error message:\n\n") + err;
         }
         AfxMessageBox(err, MB_ICONERROR, 0);
@@ -326,7 +333,7 @@ void GetVideoScore(YDLStreamDetails& details) {
     }
 
     if (s.iYDLMaxHeight > 0) {
-        if (details.height > details.width) {
+        if (details.width > 0 && details.height > details.width) {
             // vertical video
             if (s.iYDLMaxHeight >= details.width) {
                 score += 64;

@@ -105,6 +105,7 @@
 #define IDS_RS_SAVEIMAGE_CURRENTTIME        _T("SaveImageCurrentTime")
 #define IDS_RS_ALLOW_INACCURATE_FASTSEEK    _T("AllowInaccurateFastseek")
 #define IDS_RS_LOOP_FOLDER_NEXT_FILE        _T("LoopFolderOnPlayNextFile")
+#define IDS_RS_NEXT_FILE_SORT_BY_DATE       _T("NextFileInFolderSortByDate")
 #define IDS_RS_TIME_REFRESH_INTERVAL        _T("TimeRefreshInterval")
 #define IDS_RS_SHOW_ABMARKS_STATUSBAR       _T("ShowABMarksInStatusbar")
 #define IDS_RS_SHOW_LANG_STATUSBAR          _T("ShowLangInStatusbar")
@@ -132,6 +133,14 @@
 #define IDS_RS_CONFIRM_FILE_DELETE          _T("ConfirmFileDelete")
 #define IDS_RS_LIBASS_FOR_SRT               _T("UseLibassForSRT")
 #define IDS_RS_SHOW_VOLUME_PERCENTAGE       _T("ShowVolumePercentage")
+#define IDS_RS_HISTORY_IN_APPDATA           _T("HistoryInAppData")
+#define IDS_RS_TIME_ON_SEEKBAR              _T("TimeOnSeekBar")
+#define IDS_RS_TIME_ON_SEEKBAR_LEFT         _T("TimeOnSeekBarLeft")
+#define IDS_RS_CUSTOM_PRESET_CONTROLSTATE   _T("CustomPresetControlState")
+#define IDS_RS_CUSTOM_PRESET_CAPTION        _T("CustomPresetCaption")
+#define IDS_RS_STARTUP_PRESET               _T("StartupPreset")
+#define IDS_RS_HISTORY_EXCLUDE_FILTER       _T("HistoryExcludeFilter")
+#define IDS_RS_HISTORY_EXCLUDE_FILTER_PRIVATE _T("HistoryExcludeFilterPrivate")
 
 // Audio
 #define IDS_RS_VOLUME                       _T("Volume")
@@ -184,6 +193,7 @@
 #define IDS_RS_SPOVERRIDEPLACEMENT          _T("SPOverridePlacement")
 #define IDS_RS_SPHORPOS                     _T("SPHorPos")
 #define IDS_RS_SPVERPOS                     _T("SPVerPos")
+#define IDS_RS_SECONDARYSUBVERPOS           _T("SecondarySubVerPos")
 #define IDS_RS_SUBTITLEARCOMPENSATION       _T("SubtitleARCompensation")
 #define IDS_RS_SPCSIZE                      _T("SPCSize2")
 #define IDS_RS_SPCMAXRESX                   _T("SPCMaxResX")
@@ -216,8 +226,6 @@
 #define IDS_RS_WINLIRC                      _T("UseWinLirc")
 #define IDS_RS_TRAYICON                     _T("TrayIcon")
 #define IDS_RS_KEEPASPECTRATIO              _T("KeepAspectRatio")
-#define IDS_RS_UICEADDR                     _T("UICEAddr")
-#define IDS_RS_UICE                         _T("UseUICE")
 #define IDS_RS_JUMPDISTS                    _T("JumpDistS")
 #define IDS_RS_JUMPDISTM                    _T("JumpDistM")
 #define IDS_RS_JUMPDISTL                    _T("JumpDistL")
@@ -225,6 +233,7 @@
 #define IDS_RS_SRCFILTERS                   _T("SrcFilters")
 #define IDS_RS_KEEPHISTORY                  _T("KeepHistory")
 #define IDS_RS_RECENT_FILES_NUMBER          _T("RecentFilesNumber")
+#define IDS_RS_HISTORY_MAX_AGE_DAYS         _T("HistoryMaxAgeDays")
 #define IDS_RS_LOGOID                       _T("LogoID2")
 #define IDS_RS_LOGOEXT                      _T("LogoExt")
 #define IDS_RS_LOGOCOLORPROFILE             _T("LogoColorProfile")
@@ -309,6 +318,15 @@
 #define IDS_RS_COUNTRY                      _T("Country")
 
 #define IDS_R_DVB                           _T("DVBConfiguration")
+// Replacement section for the DVB settings (same pattern as Commands2 and
+// FileFormats2), which old builds never read or write. The channel
+// serialization carries a format-version token and an older build THROWS on a
+// newer token, drops the channel, and — since channels are rewritten on every
+// save — destroys the newer list just by running. The legacy section is left
+// frozen so a downgrade keeps its own last-known-good DVB settings. A sibling
+// key (not a subkey of the legacy section) also keeps the legacy section a
+// plain leaf key, which old builds clear with MFC's non-recursive RegDeleteKey.
+#define IDS_R_DVB2                          _T("DVBConfiguration2")
 //#define IDS_RS_BDA_NETWORKPROVIDER          _T("BDANetworkProvider")
 #define IDS_RS_BDA_TUNER                    _T("BDATuner")
 #define IDS_RS_BDA_RECEIVER                 _T("BDAReceiver")
@@ -347,7 +365,6 @@
 #define IDS_RS_UPDATER_DELAY                _T("UpdaterDelay")
 #define IDS_RS_UPDATER_IGNORE_VERSION       _T("UpdaterIgnoreVersion")
 
-#define IDS_RS_NOTIFY_SKYPE                 _T("NotifySkype")
 #define IDS_RS_JPEG_QUALITY                 _T("JpegQuality")
 
 #define IDS_RS_GOTO_LAST_USED               _T("GoToLastUsed")
@@ -362,6 +379,11 @@
 
 #define IDS_R_DLG_CMD_LINE_HELP             _T("Dialogs\\CmdLineHelp")
 #define IDS_R_DLG_RAR_ENTRY_SELECTOR        _T("Dialogs\\RarEntrySelector")
+
+#define IDS_R_DLG_HISTORY                   _T("Dialogs\\History")
+#define IDS_RS_DLG_HISTORY_COLWIDTH         _T("ColWidth")
+
+#define IDS_R_DLG_COLOR_CONTROLS            _T("Dialogs\\ColorControls")
 
 #define IDS_R_SHADERS                       _T("Shaders")
 #define IDS_RS_SHADERS_EXTRA                _T("Extra")

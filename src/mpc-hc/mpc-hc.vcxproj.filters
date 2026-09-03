@@ -62,9 +62,6 @@
     <Filter Include="Property Dialogs\File Properties\Pages">
       <UniqueIdentifier>{4a9b9989-f6a5-499e-9611-c7bfe024b7a3}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Integration\Skype">
-      <UniqueIdentifier>{3e62affc-727b-4af9-95eb-76f4eb63918c}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Integration\Web">
       <UniqueIdentifier>{d7f40587-25b5-46f1-90bb-6751caca4922}</UniqueIdentifier>
     </Filter>
@@ -109,6 +106,9 @@
     <ClCompile Include="ColorButton.cpp">
       <Filter>Custom Controls</Filter>
     </ClCompile>
+    <ClCompile Include="ColorControlsDlg.cpp">
+      <Filter>Modal Dialogs</Filter>
+    </ClCompile>
     <ClCompile Include="DebugShadersDlg.cpp">
       <Filter>Modal Dialogs</Filter>
     </ClCompile>
@@ -140,6 +140,9 @@
       <Filter>Graph</Filter>
     </ClCompile>
     <ClCompile Include="GoToDlg.cpp">
+      <Filter>Modal Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="HistoryDlg.cpp">
       <Filter>Modal Dialogs</Filter>
     </ClCompile>
     <ClCompile Include="OpenDlg.cpp">
@@ -289,7 +292,7 @@
     <ClCompile Include="PPageSubtitles.cpp">
       <Filter>Property Dialogs\Player Options\Pages</Filter>
     </ClCompile>
-    <ClCompile Include="PPageSync.cpp">
+    <ClCompile Include="PPageVideoRenderer.cpp">
       <Filter>Property Dialogs\Player Options\Pages</Filter>
     </ClCompile>
     <ClCompile Include="PPageTweaks.cpp">
@@ -324,9 +327,6 @@
     </ClCompile>
     <ClCompile Include="ShockwaveGraph.cpp">
       <Filter>Graph\Shockwave Flash</Filter>
-    </ClCompile>
-    <ClCompile Include="SkypeMoodMsgHandler.cpp">
-      <Filter>Integration\Skype</Filter>
     </ClCompile>
     <ClCompile Include="StaticLink.cpp">
       <Filter>Custom Controls</Filter>
@@ -399,6 +399,7 @@
     <ClCompile Include="MainFrm.cpp" />
     <ClCompile Include="MainFrmControls.cpp" />
     <ClCompile Include="mplayerc.cpp" />
+    <ClCompile Include="Profile.cpp" />
     <ClCompile Include="Playlist.cpp" />
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="UpdateChecker.cpp" />
@@ -642,6 +643,7 @@
     <ClCompile Include="CMPCThemeProgressCtrl.cpp">
       <Filter>MPCTheme</Filter>
     </ClCompile>
+    <ClCompile Include="GPUInfo.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AppSettings.h">
@@ -658,6 +660,9 @@
     </ClInclude>
     <ClInclude Include="ColorButton.h">
       <Filter>Custom Controls</Filter>
+    </ClInclude>
+    <ClInclude Include="ColorControlsDlg.h">
+      <Filter>Modal Dialogs</Filter>
     </ClInclude>
     <ClInclude Include="DebugShadersDlg.h">
       <Filter>Modal Dialogs</Filter>
@@ -690,6 +695,9 @@
       <Filter>Graph</Filter>
     </ClInclude>
     <ClInclude Include="GoToDlg.h">
+      <Filter>Modal Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="HistoryDlg.h">
       <Filter>Modal Dialogs</Filter>
     </ClInclude>
     <ClInclude Include="OpenDlg.h">
@@ -848,7 +856,7 @@
     <ClInclude Include="PPageSubtitles.h">
       <Filter>Property Dialogs\Player Options\Pages</Filter>
     </ClInclude>
-    <ClInclude Include="PPageSync.h">
+    <ClInclude Include="PPageVideoRenderer.h">
       <Filter>Property Dialogs\Player Options\Pages</Filter>
     </ClInclude>
     <ClInclude Include="PPageTweaks.h">
@@ -883,9 +891,6 @@
     </ClInclude>
     <ClInclude Include="ShockwaveGraph.h">
       <Filter>Graph\Shockwave Flash</Filter>
-    </ClInclude>
-    <ClInclude Include="SkypeMoodMsgHandler.h">
-      <Filter>Integration\Skype</Filter>
     </ClInclude>
     <ClInclude Include="StaticLink.h">
       <Filter>Custom Controls</Filter>
@@ -970,6 +975,7 @@
     <ClInclude Include="MainFrm.h" />
     <ClInclude Include="MainFrmControls.h" />
     <ClInclude Include="mplayerc.h" />
+    <ClInclude Include="Profile.h" />
     <ClInclude Include="Playlist.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="stdafx.h" />
@@ -1168,6 +1174,9 @@
     <ClInclude Include="MediaTransControls.h">
       <Filter>Main View</Filter>
     </ClInclude>
+    <ClInclude Include="SMTC2Compat.h">
+      <Filter>Main View</Filter>
+    </ClInclude>
     <ClInclude Include="ModelessResizableDialog.h">
       <Filter>Modal Dialogs</Filter>
     </ClInclude>
@@ -1224,6 +1233,7 @@
     <ClInclude Include="CMPCThemeProgressCtrl.h">
       <Filter>MPCTheme</Filter>
     </ClInclude>
+    <ClInclude Include="GPUInfo.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="res\ani.avi">

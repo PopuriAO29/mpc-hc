@@ -22,19 +22,31 @@
 #pragma once
 
 #include <afxcoll.h>
+#include <unordered_map>
+#include <vector>
 #include "CMPCThemePlayerBar.h"
 #include "PlayerListCtrl.h"
 #include "Playlist.h"
 #include "DropTarget.h"
 #include "../Subtitles/TextFile.h"
-#include "CMPCThemeInlineEdit.h"
 #include "YoutubeDL.h"
 #include "AppSettings.h"
+#include "CMPCThemeInlineEdit.h"
 
 
 class OpenMediaData;
 
 class CMainFrame;
+
+// Thin container window that provides WS_EX_CLIENTEDGE border drawing and
+// forwards child-originated messages to its own parent (the playlist bar).
+class CPlaylistListFrame : public CWnd
+{
+protected:
+    afx_msg void OnNcPaint();
+    LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+    DECLARE_MESSAGE_MAP()
+};
 
 struct CueTrackMeta {
     CString title;
@@ -52,16 +64,16 @@ private:
     enum { COL_NAME, COL_TIME };
 
     CMainFrame* m_pMainFrame;
-    CMPCThemeInlineEdit m_edit;
     int inlineEditXpos;
+    CMPCThemeInlineEdit m_edit;
 
     CFont m_font;
     void ScaleFont();
 
     CImageList m_fakeImageList;
+    CPlaylistListFrame m_listFrame;
     CPlayerListCtrl m_list;
 
-    int m_itemHeight = 0;
     int m_initialWindowDPI = 0;
     bool createdWindow;
     CPlaylistIDs m_ExternalPlayListFNCopy;
@@ -72,6 +84,8 @@ private:
 
     int m_nTimeColWidth;
     void ResizeListColumn();
+    void RefreshItem(POSITION pos);
+    void RemoveItemAt(int index);
 
     CPlaylistItem* GetCur();
 
@@ -94,10 +108,17 @@ private:
     bool ParseCUESheet(CString fn);
     
     void SetupList();
+    void SyncSelectionToPos(POSITION pos);
     void UpdateList();
     void EnsureVisible(POSITION pos);
+    bool ListHasGeometry() const;
+    bool m_bScrollToCurrentPending = false; // a scroll was deferred while the bar had no geometry
     int FindItem(const POSITION pos) const;
     POSITION FindPos(int i);
+    void RebuildPosMap();
+    void InvalidatePlayingItem(POSITION oldPos, POSITION newPos);
+    std::unordered_map<POSITION, int> m_posToIndex;
+    std::vector<POSITION> m_indexToPos;
     POSITION m_insertingPos;
 
     CImageList* m_pDragImage;
@@ -151,10 +172,12 @@ public:
     void SetFirstSelected();
     void SetFirst();
     void SetLast();
+    void EnsureCurrentVisible();
     void SetCurValid(bool fValid);
     void SetCurLabel(CString label);
     void SetCurTime(REFERENCE_TIME rt);
     void Randomize();
+    void SortByPathFrom(int startIndex);
     void UpdateLabel(CString in);
 
     void Refresh();
@@ -202,8 +225,10 @@ public:
     afx_msg BOOL OnToolTipNotify(UINT id, NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     afx_msg void OnContextMenu(CWnd* /*pWnd*/, CPoint point);
+    afx_msg void OnLvnGetDispInfoList(NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg void OnLvnBeginlabeleditList(NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg void OnLvnEndlabeleditList(NMHDR* pNMHDR, LRESULT* pResult);
+    afx_msg void OnLvnFinditem(NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg void OnXButtonDown(UINT nFlags, UINT nButton, CPoint point);
     afx_msg void OnXButtonUp(UINT nFlags, UINT nButton, CPoint point);
     afx_msg void OnXButtonDblClk(UINT nFlags, UINT nButton, CPoint point);

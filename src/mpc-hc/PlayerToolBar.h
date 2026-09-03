@@ -40,6 +40,8 @@ public:
         LOCK_RIGHT,
     };
 private:
+    friend class CMainFrame;
+
     CMainFrame* m_pMainFrame;
 
     CImage volumeOn, volumeOff;
@@ -78,6 +80,7 @@ private:
     };
 
     static std::map<WORD, svgButtonInfo> supportedSvgButtons;
+    static bool IsValidButtonLayout(const std::vector<int>& buttons, int layoutRevision);
 public:
     CPlayerToolBar(CMainFrame* pMainFrame);
     virtual ~CPlayerToolBar();

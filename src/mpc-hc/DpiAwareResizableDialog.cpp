@@ -17,15 +17,15 @@ AFX_STATIC DLGITEMTEMPLATE* AFXAPI _AfxFindFirstDlgItem(const DLGTEMPLATE* pTemp
 AFX_STATIC DLGITEMTEMPLATE* AFXAPI _AfxFindNextDlgItem(DLGITEMTEMPLATE* pItem, BOOL bDialogEx);
 
 CDpiAwareResizableDialog::CDpiAwareResizableDialog()
-    : m_currentDpi(96), m_inDpiChange(false), m_cachedTemplate(nullptr), m_bGripVisible(true), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
+    : m_currentDpi(96), m_inDpiChange(false), m_bMaximized(false), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
 {
 }
 
-CDpiAwareResizableDialog::CDpiAwareResizableDialog(UINT nIDTemplate, CWnd* pParent) : CResizableDialog(nIDTemplate, pParent), m_currentDpi(96), m_inDpiChange(false), m_cachedTemplate(nullptr), m_bGripVisible(true), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
+CDpiAwareResizableDialog::CDpiAwareResizableDialog(UINT nIDTemplate, CWnd* pParent) : CResizableDialog(nIDTemplate, pParent), m_currentDpi(96), m_inDpiChange(false), m_bMaximized(false), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
 {
 }
 
-CDpiAwareResizableDialog::CDpiAwareResizableDialog(LPCTSTR lpszTemplateName, CWnd* pParent) : CResizableDialog(lpszTemplateName, pParent), m_currentDpi(96), m_inDpiChange(false), m_cachedTemplate(nullptr), m_bGripVisible(true), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
+CDpiAwareResizableDialog::CDpiAwareResizableDialog(LPCTSTR lpszTemplateName, CWnd* pParent) : CResizableDialog(lpszTemplateName, pParent), m_currentDpi(96), m_inDpiChange(false), m_bMaximized(false), m_bSaveRestoreEnabled(false), m_bRestorationPending(false), m_currentDluSize(0, 0)
 {
 }
 
@@ -184,12 +184,6 @@ BOOL CDpiAwareResizableDialog::OnInitDialog() {
     UpdateMinMaxTrackSizeForDPI();
     ApplyDialogSizeAndDpi(m_currentDpi, GetTargetDluSize());
 
-    // Refresh grip (initialized with primary monitor DPI, not current monitor)
-    CWnd* pGrip = GetSizeGripWnd();
-    if (pGrip && ::IsWindow(pGrip->GetSafeHwnd())) {
-        pGrip->SendMessage(WM_SETTINGCHANGE, 0, 0);
-    }
-
     return ret;
 }
 
@@ -303,7 +297,7 @@ void CDpiAwareResizableDialog::UpdateSizeGripDPI()
     int gripX = clientRect.right - gripCx;
     int gripY = clientRect.bottom - gripCy;
 
-    pGrip->SetWindowPos(&CWnd::wndBottom, gripX, gripY, gripCx, gripCy, SWP_NOACTIVATE | SWP_NOREPOSITION | (m_bGripVisible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+    pGrip->SetWindowPos(&CWnd::wndBottom, gripX, gripY, gripCx, gripCy, SWP_NOACTIVATE | SWP_NOREPOSITION | (!m_bMaximized && IsSizeGripVisible() ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
 }
 
 //see CResizableDialog::OnSize -- we override and do not call parent because private implementation is not dpi aware
@@ -319,9 +313,9 @@ void CDpiAwareResizableDialog::OnSize(UINT nType, int cx, int cy) {
     }
 
     if (nType == SIZE_MAXIMIZED) {
-        m_bGripVisible = false;
+        m_bMaximized = true;
     } else {
-        m_bGripVisible = true;
+        m_bMaximized = false;
     }
 
     UpdateSizeGripDPI();
@@ -424,11 +418,6 @@ LRESULT CDpiAwareResizableDialog::OnDpiChanged(WPARAM wParam, LPARAM lParam)
 
     ApplyDialogSizeAndDpi(m_currentDpi, targetDluSize);
     RefreshStaticImages();
-
-    CWnd* pGrip = GetSizeGripWnd();
-    if (pGrip && ::IsWindow(pGrip->GetSafeHwnd())) {
-        pGrip->SendMessage(WM_SETTINGCHANGE, 0, 0);
-    }
 
     SetupAnchors();
 
@@ -728,7 +717,7 @@ void CDpiAwareResizableDialog::LoadStaticIcon(int controlID, LPCTSTR iconResourc
     int iconSize = std::min(controlRect.Width(), controlRect.Height());
 
     HICON hIcon = nullptr;
-    HINSTANCE hInst = isSystemIcon ? nullptr : AfxGetResourceHandle();
+    HINSTANCE hInst = isSystemIcon ? nullptr : AfxGetInstanceHandle();
 
     if (SUCCEEDED(LoadIconWithScaleDown(hInst, iconResourceID, iconSize, iconSize, &hIcon))) {
         pStatic->SetIcon(hIcon);
@@ -755,7 +744,7 @@ void CDpiAwareResizableDialog::RefreshStaticImages()
 
         HICON hOldIcon = pStatic->GetIcon();
         HICON hIcon = nullptr;
-        HINSTANCE hInst = info.isSystemIcon ? nullptr : AfxGetResourceHandle();
+        HINSTANCE hInst = info.isSystemIcon ? nullptr : AfxGetInstanceHandle();
 
         if (SUCCEEDED(LoadIconWithScaleDown(hInst, info.resourceID, iconSize, iconSize, &hIcon))) {
             pStatic->SetIcon(hIcon);
@@ -767,10 +756,6 @@ void CDpiAwareResizableDialog::RefreshStaticImages()
 }
 
 const DLGTEMPLATE* CDpiAwareResizableDialog::LoadDialogTemplate() const {
-    if (m_cachedTemplate) {
-        return m_cachedTemplate;
-    }
-
     UINT templateID = GetDialogTemplateID();
     if (templateID == 0) {
         return nullptr;
@@ -786,6 +771,5 @@ const DLGTEMPLATE* CDpiAwareResizableDialog::LoadDialogTemplate() const {
         return nullptr;
     }
 
-    m_cachedTemplate = (const DLGTEMPLATE*)LockResource(hglb);
-    return m_cachedTemplate;
+    return (const DLGTEMPLATE*)LockResource(hglb);
 }

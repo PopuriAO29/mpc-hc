@@ -71,16 +71,8 @@ void CInPlaceWinHotkey::OnKillFocus(CWnd* pNewWnd)
     CString str;
     GetWindowText(str);
 
-    LV_DISPINFO dispinfo;
-    dispinfo.hdr.hwndFrom = GetParent()->m_hWnd;
-    dispinfo.hdr.idFrom = GetDlgCtrlID();
-    dispinfo.hdr.code = LVN_ENDLABELEDIT;
-    dispinfo.item.mask = LVIF_TEXT;
-    dispinfo.item.iItem = m_iItem;
-    dispinfo.item.iSubItem = m_iSubItem;
-    dispinfo.item.pszText = m_bESC ? nullptr : LPTSTR((LPCTSTR)str);
-    dispinfo.item.cchTextMax = str.GetLength();
-    GetParent()->GetParent()->SendMessage(WM_NOTIFY, GetParent()->GetDlgCtrlID(), (LPARAM)&dispinfo);
+    CPlayerListCtrl::SendLabelEditNotify(GetParent(), LVN_ENDLABELEDIT, m_iItem, m_iSubItem,
+                                         m_bESC ? nullptr : (LPCTSTR)str);
 
     DestroyWindow();
 }
@@ -170,16 +162,8 @@ void CInPlaceEdit::OnKillFocus(CWnd* pNewWnd)
     CString str;
     GetWindowText(str);
 
-    LV_DISPINFO dispinfo;
-    dispinfo.hdr.hwndFrom = GetParent()->m_hWnd;
-    dispinfo.hdr.idFrom = GetDlgCtrlID();
-    dispinfo.hdr.code = LVN_ENDLABELEDIT;
-    dispinfo.item.mask = LVIF_TEXT;
-    dispinfo.item.iItem = m_iItem;
-    dispinfo.item.iSubItem = m_iSubItem;
-    dispinfo.item.pszText = m_bESC ? nullptr : LPTSTR((LPCTSTR)str);
-    dispinfo.item.cchTextMax = str.GetLength();
-    GetParent()->GetParent()->SendMessage(WM_NOTIFY, GetParent()->GetDlgCtrlID(), (LPARAM)&dispinfo);
+    CPlayerListCtrl::SendLabelEditNotify(GetParent(), LVN_ENDLABELEDIT, m_iItem, m_iSubItem,
+                                         m_bESC ? nullptr : (LPCTSTR)str);
 
     DestroyWindow();
 }
@@ -485,10 +469,10 @@ void CInPlaceListBox::OnNcDestroy()
 // CPlayerListCtrl
 
 IMPLEMENT_DYNAMIC(CPlayerListCtrl, CMPCThemePlayerListCtrl)
-CPlayerListCtrl::CPlayerListCtrl(int tStartEditingDelay)
+CPlayerListCtrl::CPlayerListCtrl(bool bDoubleClickAction)
     : m_nItemClicked(-1)
     , m_nSubItemClicked(-1)
-    , m_tStartEditingDelay(tStartEditingDelay)
+    , m_bDoubleClickAction(bDoubleClickAction)
     , m_nTimerID(0)
     , m_fInPlaceDirty(false)
     , inPlaceControl(false)
@@ -728,7 +712,7 @@ void CPlayerListCtrl::OnEnChangeWinHotkey1()
     m_fInPlaceDirty = true;
 }
 
-CEdit* CPlayerListCtrl::ShowInPlaceEdit(int nItem, int nCol)
+CInPlaceEdit* CPlayerListCtrl::ShowInPlaceEdit(int nItem, int nCol)
 {
     CRect rect;
     if (!PrepareInPlaceControl(nItem, nCol, rect)) {
@@ -744,7 +728,7 @@ CEdit* CPlayerListCtrl::ShowInPlaceEdit(int nItem, int nCol)
                : (lvcol.fmt & LVCFMT_JUSTIFYMASK) == LVCFMT_RIGHT ? ES_RIGHT
                : ES_CENTER;
 
-    CEdit* pEdit = DEBUG_NEW CInPlaceEdit(nItem, nCol, GetItemText(nItem, nCol));
+    CInPlaceEdit* pEdit = DEBUG_NEW CInPlaceEdit(nItem, nCol, GetItemText(nItem, nCol));
     pEdit->Create(dwStyle, rect, this, IDC_EDIT1);
 
     m_fInPlaceDirty = false;
@@ -844,9 +828,11 @@ BEGIN_MESSAGE_MAP(CPlayerListCtrl, CMPCThemePlayerListCtrl)
     ON_WM_HSCROLL()
     ON_WM_MOUSEWHEEL()
     ON_WM_LBUTTONDOWN()
+    ON_WM_RBUTTONDOWN()
     ON_WM_TIMER()
     ON_WM_LBUTTONDBLCLK()
     ON_NOTIFY_REFLECT(LVN_MARQUEEBEGIN, OnLvnMarqueeBegin)
+    ON_NOTIFY_REFLECT_EX(LVN_BEGINDRAG, OnLvnBegindrag)
     ON_NOTIFY_REFLECT(LVN_INSERTITEM, OnLvnInsertitem)
     ON_NOTIFY_REFLECT(LVN_DELETEITEM, OnLvnDeleteitem)
     ON_EN_CHANGE(IDC_EDIT1, OnEnChangeEdit1)
@@ -890,6 +876,22 @@ BOOL CPlayerListCtrl::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
     return CListCtrl::OnMouseWheel(nFlags, zDelta, pt);
 }
 
+LRESULT CPlayerListCtrl::SendLabelEditNotify(CWnd* pList, UINT code, int nItem, int nSubItem, LPCTSTR pszText)
+{
+    LV_DISPINFO dispinfo = {};
+    dispinfo.hdr.hwndFrom = pList->m_hWnd;
+    dispinfo.hdr.idFrom = pList->GetDlgCtrlID();
+    dispinfo.hdr.code = code;
+    dispinfo.item.iItem = nItem;
+    dispinfo.item.iSubItem = nSubItem;
+    if (pszText) {
+        dispinfo.item.mask = LVIF_TEXT;
+        dispinfo.item.pszText = const_cast<LPTSTR>(pszText);
+        dispinfo.item.cchTextMax = (int)_tcslen(pszText);
+    }
+    return pList->GetParent()->SendMessage(WM_NOTIFY, pList->GetDlgCtrlID(), (LPARAM)&dispinfo);
+}
+
 void CPlayerListCtrl::OnLButtonDown(UINT nFlags, CPoint point)
 {
     CListCtrl::OnLButtonDown(nFlags, point);
@@ -910,21 +912,7 @@ void CPlayerListCtrl::OnLButtonDown(UINT nFlags, CPoint point)
     } else if (m_nItemClicked == m_nItemClickedNow /*&& m_nSubItemClicked == m_nSubItemClickedNow*/) {
         m_nSubItemClicked = m_nSubItemClickedNow;
 
-        LV_DISPINFO dispinfo;
-        dispinfo.hdr.hwndFrom = m_hWnd;
-        dispinfo.hdr.idFrom = GetDlgCtrlID();
-        dispinfo.hdr.code = LVN_BEGINLABELEDIT;
-        dispinfo.item.mask = 0;
-        dispinfo.item.iItem = m_nItemClicked;
-        dispinfo.item.iSubItem = m_nSubItemClicked;
-        if (GetParent()->SendMessage(WM_NOTIFY, GetDlgCtrlID(), (LPARAM)&dispinfo)) {
-            if (m_tStartEditingDelay > 0) {
-                m_nTimerID = SetTimer(1, m_tStartEditingDelay, nullptr);
-            } else {
-                dispinfo.hdr.code = LVN_DOLABELEDIT;
-                GetParent()->SendMessage(WM_NOTIFY, GetDlgCtrlID(), (LPARAM)&dispinfo);
-            }
-        }
+        m_nTimerID = SetTimer(1, m_bDoubleClickAction ? GetDoubleClickTime() : 1u, nullptr);
     } else {
         m_nItemClicked = m_nItemClickedNow;
         m_nSubItemClicked = m_nSubItemClickedNow;
@@ -932,6 +920,7 @@ void CPlayerListCtrl::OnLButtonDown(UINT nFlags, CPoint point)
         SetItemState(m_nItemClicked, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     }
 }
+
 
 void CPlayerListCtrl::OnTimer(UINT_PTR nIDEvent)
 {
@@ -941,11 +930,10 @@ void CPlayerListCtrl::OnTimer(UINT_PTR nIDEvent)
 
         UINT flag = LVIS_FOCUSED;
         if ((GetItemState(m_nItemClicked, flag) & flag) == flag && m_nSubItemClicked >= 0) {
-            LV_DISPINFO dispinfo;
+            LV_DISPINFO dispinfo = {};
             dispinfo.hdr.hwndFrom = m_hWnd;
             dispinfo.hdr.idFrom = GetDlgCtrlID();
             dispinfo.hdr.code = LVN_DOLABELEDIT;
-            dispinfo.item.mask = 0;
             dispinfo.item.iItem = m_nItemClicked;
             dispinfo.item.iSubItem = m_nSubItemClicked;
             GetParent()->SendMessage(WM_NOTIFY, GetDlgCtrlID(), (LPARAM)&dispinfo);
@@ -976,6 +964,17 @@ void CPlayerListCtrl::OnLvnMarqueeBegin(NMHDR* pNMHDR, LRESULT* pResult)
     LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
     UNREFERENCED_PARAMETER(pNMLV);
     *pResult = 1;
+}
+
+BOOL CPlayerListCtrl::OnLvnBegindrag(NMHDR* pNMHDR, LRESULT* pResult)
+{
+    if (m_nTimerID) {
+        KillTimer(m_nTimerID);
+        m_nTimerID = 0;
+    }
+    m_nItemClicked = -1;
+    *pResult = 0;
+    return FALSE; // let parent handle the drag
 }
 
 void CPlayerListCtrl::OnLvnInsertitem(NMHDR* pNMHDR, LRESULT* pResult)
@@ -1145,4 +1144,14 @@ int CPlayerListCtrl::InsertColumn(_In_ int nCol, _In_z_ LPCWSTR lpszColumnHeadin
     }
 
     return nCol;
+}
+
+void CPlayerListCtrl::OnRButtonDown(UINT nFlags, CPoint point)
+{
+    if (m_nTimerID) {
+        KillTimer(m_nTimerID);
+        m_nTimerID = 0;
+    }
+    m_nItemClicked = -1;
+    __super::OnRButtonDown(nFlags, point);
 }
