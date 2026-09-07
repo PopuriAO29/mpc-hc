@@ -1296,6 +1296,8 @@ void CMainFrame::OnClose()
 {
     CAppSettings& s = AfxGetAppSettings();
 
+    m_OnClose_called = true;
+
     if (USE_LOGGER(s)) {
         PLAYER_LOG(_T("CMainFrame::OnClose"));
         FLUSH_LOGGER();
@@ -1333,29 +1335,17 @@ void CMainFrame::OnClose()
 
     ASSERT(!m_bOpenMediaActive);
 
-    #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
-    if (CrashReporter::IsEnabled()) {
-        if (GetCurrentThreadId() != AfxGetApp()->m_nThreadID) {
-            throw 0xdead;
-        }
-    }
-    #endif
-
     if (GetLoadState() != MLS::CLOSED) {
-#if MPC_VERSION_REV > 0
-        AfxMessageBox(L"Unexpected state while closing.\n\nPlease contact the developers, so that we can analyze the problem.\n\nTo enable debug log:\nOptions > Advanced > DebugLogMask = 1\nLog file location:\n%APPDATA%\\MPC-HC\\player.log", MB_OK);
-#endif
         if (USE_LOGGER(s)) {
             PLAYER_LOG(_T("CMainFrame::OnClose - Unexpected loadstate: %d"), (int)GetLoadState());
             FLUSH_LOGGER();
         }
         ASSERT(false);
-        ForceCloseProcess();
+        ThrowAndForceClose();
     }   
 
     {
         CAutoLock ga(&lockGraphAccess);
-        AfxGetMyApp()->SetClosingState();
 
         MSG msg;
         while (PeekMessage(&msg, nullptr, WM_GRAPHNOTIFY, WM_MPC_OPENCURPLAYLIST, PM_REMOVE)) {
@@ -1363,9 +1353,11 @@ void CMainFrame::OnClose()
             ASSERT(false);
         }
         int pm = 0;
-        while ((pm++ < 5) && PeekMessage(&msg, nullptr, WM_ACTIVATE, WM_ACTIVATE, PM_REMOVE)) {
+        while ((pm++ < 10) && PeekMessage(&msg, nullptr, WM_ACTIVATE, WM_ACTIVATE, PM_REMOVE)) {
             TRACE(L"Purged WM_ACTIVATE during player close\n");
         }
+
+        AfxGetMyApp()->SetClosingState();
     }
 
     if (USE_LOGGER(s)) {
@@ -14689,18 +14681,32 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
                     m_pME->SetNotifyWindow(NULL, 0, 0);
                 }
 
+                if (hr == VFW_E_CANNOT_RENDER) {
+                    CComPtr<CFGManager> fgm = static_cast<CFGManager*>(m_pGB.p);
+                    if (fgm && fgm->GetInternalFilterLoadingBlocked()) {
+                        DWORD sac;
+                        if (IsWindowsVersionOrGreaterBuild(10,0,22000) && ReadRegistryDWORD(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\CI\\Protected", L"VerifiedAndReputablePolicyStateMinValueSeen", sac) && (sac > 0)) {
+                            throw (UINT)IDS_MAINFRM_RENDERFAIL_DLL_SAC;
+                        } else {
+                            throw (UINT)IDS_MAINFRM_RENDERFAIL_DLL;
+                        }
+                    }
+                }
+
                 if (s.fReportFailedPins && !m_fOpeningAborted) {
                     CComQIPtr<IGraphBuilderDeadEnd> pGBDE = m_pGB;
                     if (pGBDE && pGBDE->GetCount()) {
                         bool showmtdlg = true;
                         // don't show meaningless dialog when it fails at generic source filter
-                        // ToDo: throw different error, indicating that file may be damaged/incomplete
-                        if (pGBDE->GetCount() == 1) {
+                        if (hr == VFW_E_CANNOT_RENDER && pGBDE->GetCount() == 1) {
                             CAtlList<CStringW> path;
                             CAtlList<CMediaType> mts;
                             if (S_OK == pGBDE->GetDeadEnd(0, path, mts) && path.GetCount() == 1) {
                                 if (path.GetHead() == L"File Source (Async.)::Output") {
                                     showmtdlg = false;
+                                    if (s.SrcFilters[SRC_MP4]) {
+                                        throw (UINT)IDS_MAINFRM_RENDERFAIL_CORRUPT;
+                                    }
                                 }
                             }
                         }
@@ -14864,8 +14870,8 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
             if (m_bUseSeekPreview) {
                 HRESULT previewHR;
                 if (isRFS) {
-                    CComPtr<CFGManager> fgm = static_cast<CFGManager*>(m_pGB_preview.p);
-                    previewHR = fgm->RenderRFSFileEntry(fn, nullptr, entryRFS);
+                    CComPtr<CFGManager> fgmp = static_cast<CFGManager*>(m_pGB_preview.p);
+                    previewHR = fgmp->RenderRFSFileEntry(fn, nullptr, entryRFS);
                 } else {
                     previewHR = m_pGB_preview->RenderFile(fn, nullptr);
                 }
@@ -16582,13 +16588,16 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         FLUSH_LOGGER();
     }
 
-    if (m_pGB || m_ActiveGraphNotifyEvCode == EC_PAUSED || GetLoadState() != MLS::LOADING) {
+    if (m_pGB || m_ActiveGraphNotifyEvCode == EC_PAUSED || GetLoadState() != MLS::LOADING || m_OnClose_called) {
         ASSERT(false);
-        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
+        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
         if (CrashReporter::IsEnabled()) {
             throw 0xdead;
         }
         #endif
+        m_bOpenMediaActive = false;
+        m_closingmsg = L"Aborted due to unexpected state";
+        return false;
     }
 
     m_fValidDVDOpen = false;
@@ -20459,13 +20468,14 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
 
     const auto& s = AfxGetAppSettings();
 
-    if (m_ActiveGraphNotifyEvCode == EC_PAUSED) {
+    if (m_ActiveGraphNotifyEvCode == EC_PAUSED || m_OnClose_called) {
         ASSERT(false);
-        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
+        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
         if (CrashReporter::IsEnabled()) {
             throw 0xdead;
         }
         #endif
+        return;
     }
 
     if (m_bOpenMediaActive) {
@@ -20521,7 +20531,7 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
     }
 
     if (m_eMediaLoadState != MLS::CLOSED) {
-        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
+        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
         if (CrashReporter::IsEnabled()) {
             throw 0xdead;
         }
@@ -20678,6 +20688,21 @@ void CMainFrame::ForceCloseProcess()
     TerminateProcess(GetCurrentProcess(), 0xDEADBEEF);
 }
 
+void CMainFrame::ThrowAndForceClose()
+{
+    MessageBeep(MB_ICONEXCLAMATION);
+    if (USE_LOGGER(AfxGetAppSettings())) {
+        PLAYER_LOG(_T("CMainFrame::ThrowAndForceClose"));
+        FLUSH_LOGGER();
+    }
+    #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
+    if (CrashReporter::IsEnabled()) {
+        throw 0xdead;
+    }
+    #endif
+    TerminateProcess(GetCurrentProcess(), 0xDEADBEEF);
+}
+
 void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDelete/* = false*/)
 {
     TRACE(_T("CMainFrame::CloseMedia\n"));
@@ -20694,12 +20719,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
     m_bDVDStillOn = false;
 
     if (m_ActiveGraphNotifyEvCode == EC_PAUSED) {
-        ASSERT(false);
-        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
-        if (CrashReporter::IsEnabled()) {
-            throw 0xdead;
-        }
-        #endif
+        ThrowAndForceClose();
     }
 
     if (m_eMediaLoadState == MLS::CLOSED) {
@@ -21544,7 +21564,7 @@ void CMainFrame::SetLoadState(MLS eState)
             PLAYER_LOG(_T("CMainFrame::SetLoadState - unexpected state change: %d -> %d"), m_eMediaLoadState, eState);
             FLUSH_LOGGER();
         }
-        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
+        #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
         if (CrashReporter::IsEnabled()) {
             if (GetCurrentThreadId() != AfxGetApp()->m_nThreadID) {
                 throw 0xdead;
@@ -23257,35 +23277,40 @@ bool CMainFrame::isSafeZone(CPoint pt) {
 
 LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (AfxGetMyApp()->m_fClosingState) {
+        if (message == WM_MPC_OPENCURPLAYLIST || message == WM_ACTIVATE || message == WM_SETFOCUS || message == WM_GETMINMAXINFO) {
+            TRACE(_T("Dropped WindowProc because mainframe was destroyed: message 0x%x value %d\n"), message, LOWORD(wParam));
+            return 0;
+        }
+        return __super::WindowProc(message, wParam, lParam);
+    }
+
     if (!m_hWnd) {
         ASSERT(false);
         return 0;
     }
 
-    if (message == WM_MPC_OPENCURPLAYLIST && IsStateClosingAborting()) {
-        // this can happen when a modal dialog is shown during media close, as that runs the main message loop
+    if (message == WM_MPC_OPENCURPLAYLIST && (m_OnClose_called || IsStateClosingAborting())) {
+        // this can for example happen when a modal dialog is shown during media close, as that runs another message loop
         TRACE(_T("Dropped WindowProc: message 0x%x value %d\n"), message, LOWORD(wParam));
         return 0;
     }
 
+#ifdef DEBUG
     if (message != WM_ENTERIDLE && message != WM_DRAWITEM && IsStateClosingAborting()) {
         TRACE(_T("WindowProc during media close: message 0x%x value %d\n"), message, LOWORD(wParam));
     }
-
-    if (message == WM_ACTIVATE || message == WM_SETFOCUS || message == WM_GETMINMAXINFO) {
-        if (AfxGetMyApp()->m_fClosingState) {
-            TRACE(_T("Dropped WindowProc: message 0x%x value %d\n"), message, LOWORD(wParam));
-            return 0;
-        }
-    }
+#endif
 
     if (message == WM_SYSCOMMAND) {
         UINT nID = LOWORD(wParam) & 0XFFF0;
         if (nID == SC_CLOSE) {
-            OnClose();
+            if (!m_OnClose_called) {
+                OnClose();
+            }
             return 0;
         }
-        //TRACE(_T("WM_SYSCOMMAND: value 0x%x\n"), LOWORD(wParam));
+        return __super::WindowProc(message, wParam, lParam);
     }
 
     if ((message == WM_COMMAND) && (THBN_CLICKED == HIWORD(wParam))) {
