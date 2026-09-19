@@ -34,6 +34,7 @@
 #include "PPageFormats.h"
 #include "PPageSheet.h"
 #include "PathUtils.h"
+#include "RedirectWaitDlg.h"
 #include "Struct.h"
 #include "UpdateChecker.h"
 #include "WebServer.h"
@@ -1107,10 +1108,23 @@ bool CMPlayerCApp::ChangeSettingsLocation(bool useIni)
     m_s->GetFav(FAV_DVD, DVDsFav);
     m_s->GetFav(FAV_DEVICE, devicesFav);
 
-    // The internal filter settings (LAV Splitter/Video/Audio, audio renderer)
-    // exist only in the profile store, so snapshot them for the new location
-    ProfileMap internalFilterSettings;
-    m_Profile.ReadSectionTree(IDS_R_INTERNAL_FILTERS, internalFilterSettings);
+    // Snapshot the whole store for the new location, not only the sections we
+    // know about. Anything that lives only in the profile (the internal filter
+    // settings, PlaylistHistory, Recent Dub List, updater state, dialog
+    // geometry, ...) would otherwise be lost with the old store. MediaHistory
+    // is rewritten in full by SaveSettings(true) below and Version is set per
+    // store, so those two are skipped.
+    ProfileMap storeSnapshot;
+    {
+        std::vector<CStringW> roots;
+        m_Profile.EnumRootSectionNames(roots);
+        for (const auto& root : roots) {
+            if (root.CompareNoCase(L"Version") == 0 || root.CompareNoCase(L"MediaHistory") == 0) {
+                continue;
+            }
+            m_Profile.ReadSectionTree(root, storeSnapshot);
+        }
+    }
 
     if (useIni) {
         // Offer to leave the old registry settings in place as a backup copy
@@ -1135,8 +1149,9 @@ bool CMPlayerCApp::ChangeSettingsLocation(bool useIni)
         return false;
     }
 
-    // Restore the internal filter settings into the new store
-    m_Profile.WriteSectionTree(internalFilterSettings);
+    // Restore the snapshot into the new store; SaveSettings() below then
+    // rewrites everything it owns on top of it
+    m_Profile.WriteSectionTree(storeSnapshot);
 
     // Point the MediaHistory store at the new location before SaveSettings()
     // below re-writes the full in-memory history there in the correct format.
@@ -1435,6 +1450,120 @@ bool CMPlayerCApp::SendCommandLine(HWND hWnd)
     cds.lpData = (void*)(BYTE*)buff;
 
     return !!SendMessageTimeoutW(hWnd, WM_COPYDATA, (WPARAM)nullptr, (LPARAM)&cds, SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG, 5000, nullptr);
+}
+
+HWND CMPlayerCApp::FindOtherInstance()
+{
+    HWND hWnd = ::FindWindow(MPC_WND_CLASS_NAME, nullptr);
+    if (!hWnd) {
+        return nullptr;
+    }
+
+    DWORD dwProcessId = 0;
+    if (GetWindowThreadProcessId(hWnd, &dwProcessId) && dwProcessId) {
+        VERIFY(AllowSetForegroundWindow(dwProcessId));
+    } else {
+        ASSERT(FALSE);
+    }
+
+    // Do not poke a window that has already stopped responding: ShowWindow on another
+    // process window can block on it.
+    if (!IsHungAppWindow(hWnd) && !(m_s->nCLSwitches & CLSW_MINIMIZED) && IsIconic(hWnd) &&
+            (!(m_s->nCLSwitches & CLSW_ADD) || m_s->nCLSwitches & CLSW_PLAY) //do not restore when adding to playlist of minimized player, unless also playing
+       ) {
+        ShowWindow(hWnd, SW_RESTORE);
+    }
+
+    return hWnd;
+}
+
+CMPlayerCApp::RedirectResult CMPlayerCApp::RedirectToOtherInstance()
+{
+    HWND hWnd = FindOtherInstance();
+    if (!hWnd) {
+        return RedirectResult::OpenNormally;
+    }
+    if (SendCommandLine(hWnd)) {
+        return RedirectResult::Redirected;
+    }
+
+    // SendCommandLine only fails because SMTO_ABORTIFHUNG saw a ghosted window; anything
+    // else (an empty command line) is not a hang and must not start a recovery.
+    if (!IsHungAppWindow(hWnd)) {
+        return RedirectResult::OpenNormally;
+    }
+
+    // Windows ghosts a window about 5 seconds after it stops pumping messages, which does
+    // not mean the process is deadlocked, since a path on an unreachable share blocks the
+    // first instance for about half a minute and it then recovers on its own. A send to a
+    // ghosted window fails in about 20 ms, so retry rather than opening a window straight
+    // away, and an aborted send is never delivered, so a retry cannot open the same file
+    // twice. Only the process that wins this mutex runs the recovery and talks to the
+    // user; the others retry quietly so a large selection cannot become one new window
+    // per file.
+    ATL::CMutex mutexRecovery;
+    mutexRecovery.Create(nullptr, FALSE, MPC_RECOVERY_MUTEX_NAME);
+    const bool bOwnsRecovery = (GetLastError() != ERROR_ALREADY_EXISTS);
+
+    auto retry = [this]() -> int {
+        HWND hRetry = FindOtherInstance();
+        if (!hRetry) { // it exited while we were waiting
+            return IDABORT;
+        }
+        return SendCommandLine(hRetry) ? IDOK : 0;
+    };
+
+    if (!bOwnsRecovery) {
+        // Another process owns the recovery and is the one talking to the user. Retry
+        // quietly: opening one window per file is exactly what this path exists to prevent.
+        const ULONGLONG tStart = GetTickCount64();
+        while (GetTickCount64() - tStart < 60000ULL) {
+            Sleep(1000);
+            switch (retry()) {
+                case IDOK:
+                    return RedirectResult::Redirected;
+                case IDABORT:
+                    return RedirectResult::ExitSilently;
+            }
+        }
+        return RedirectResult::ExitSilently;
+    }
+
+    // Say what is happening rather than leaving the desktop silent for half a minute, which
+    // is what makes people start opening yet more files. The dialog runs the retry on its
+    // own timer, so it closes itself as soon as the other instance answers.
+    CRedirectWaitDlg dlg(retry, 30000ULL);
+    switch (dlg.DoModal()) {
+        case IDOK:
+            return RedirectResult::Redirected;
+        case IDABORT: // it exited while we were waiting
+        case IDCANCEL: // the user would rather have a window now than keep waiting
+            return RedirectResult::OpenNormally;
+    }
+
+    // Still not responding. Ask before killing anything: from the outside a deadlocked
+    // instance is indistinguishable from one blocked on a slow share.
+    if (AfxMessageBox(ResStr(IDS_REDIRECT_HUNG_INSTANCE), MB_YESNO | MB_ICONEXCLAMATION) == IDYES) {
+        hWnd = FindOtherInstance();
+        if (!hWnd) {
+            return RedirectResult::OpenNormally;
+        }
+        if (SendCommandLine(hWnd)) { // it may have recovered while the prompt was up
+            return RedirectResult::Redirected;
+        }
+
+        DWORD dwProcessId = 0;
+        if (GetWindowThreadProcessId(hWnd, &dwProcessId) && dwProcessId) {
+            HANDLE hProcess = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, dwProcessId);
+            if (hProcess) {
+                TerminateProcess(hProcess, 0xDEAD4149);
+                WaitForSingleObject(hProcess, 5000);
+                CloseHandle(hProcess);
+            }
+        }
+    }
+
+    return RedirectResult::OpenNormally;
 }
 
 // CMPlayerCApp initialization
@@ -1843,8 +1972,9 @@ BOOL WINAPI Mine_LockWindowUpdate(HWND hWndLock)
 {
     // TODO: Check if needed on Windows 8+
     if (hWndLock == ::GetDesktopWindow()) {
-        // locking the desktop window with aero active locks the entire compositor,
-        // unfortunately MFC does that (when dragging CControlBar) and we want to prevent it
+        // locking the desktop window under DWM freezes the entire compositor; the
+        // remaining in-process caller is ImageList_DragEnter (playlist / edit-list
+        // row drag), panel dragging has moved to CPlayerBarDockContext
         return FALSE;
     } else {
         return Real_LockWindowUpdate(hWndLock);
@@ -2075,6 +2205,7 @@ BOOL CMPlayerCApp::InitInstance()
         for (size_t i = 0, cnt = mf.GetCount(); i < cnt; i++) {
             m_s->fileAssoc.Register(mf[i], false, false, false);
         }
+        m_s->fileAssoc.UnregisterDropTargetServer();
 
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 
@@ -2130,31 +2261,32 @@ BOOL CMPlayerCApp::InitInstance()
     m_mutexOneInstance.Create(nullptr, TRUE, MPC_WND_CLASS_NAME);
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        if ((m_s->nCLSwitches & CLSW_ADD) || !(m_s->GetAllowMultiInst() || m_s->nCLSwitches & CLSW_NEW || m_cmdln.IsEmpty())) {
+        // Started by COM to serve an Explorer verb (see ShellDropTarget.h): there is nothing
+        // to redirect, the selection arrives through IDropTarget once this instance has
+        // registered its class objects, and exiting here would fail Explorer's activation.
+        const bool bEmbedding = !!(m_s->nCLSwitches & CLSW_EMBEDDING);
+        if (!bEmbedding && ((m_s->nCLSwitches & CLSW_ADD) || !(m_s->GetAllowMultiInst() || m_s->nCLSwitches & CLSW_NEW || m_cmdln.IsEmpty()))) {
+            // The first instance owns this mutex until it has created its window, so waiting
+            // for it means waiting for startup to finish. Release it again straight away:
+            // holding it across the send serialized every redirecting process, so one slow
+            // open in the first instance made all the others time out here and open their
+            // own windows.
             DWORD res = WaitForSingleObject(m_mutexOneInstance.m_h, 5000);
             if (res == WAIT_OBJECT_0 || res == WAIT_ABANDONED) {
-                HWND hWnd = ::FindWindow(MPC_WND_CLASS_NAME, nullptr);
-                if (hWnd) {
-                    DWORD dwProcessId = 0;
-                    if (GetWindowThreadProcessId(hWnd, &dwProcessId) && dwProcessId) {
-                        VERIFY(AllowSetForegroundWindow(dwProcessId));
-                    } else {
-                        ASSERT(FALSE);
-                    }
-                    if (!(m_s->nCLSwitches & CLSW_MINIMIZED) && IsIconic(hWnd) &&
-                        (!(m_s->nCLSwitches & CLSW_ADD) || m_s->nCLSwitches & CLSW_PLAY) //do not restore when adding to playlist of minimized player, unless also playing
-                        ) {
-                        ShowWindow(hWnd, SW_RESTORE);
-                    }
-                    if (SendCommandLine(hWnd)) {
-                        m_mutexOneInstance.Close();
-                        return FALSE;
-                    }
-                }
+                ReleaseMutex(m_mutexOneInstance.m_h);
             }
+
+            const RedirectResult result = RedirectToOtherInstance();
+            if (result != RedirectResult::OpenNormally) {
+                m_mutexOneInstance.Close();
+                return FALSE;
+            }
+            // We are going to become an instance ourselves, so take ownership back. A process
+            // starting behind us then waits for our window instead of racing its creation.
+            WaitForSingleObject(m_mutexOneInstance.m_h, 0);
             if ((m_s->nCLSwitches & CLSW_ADD)) {
                 ASSERT(FALSE);
-                return FALSE; // don't open new instance if SendCommandLine() failed
+                return FALSE; // don't open new instance if the redirect failed
             }
         }
     }
@@ -2255,6 +2387,11 @@ BOOL CMPlayerCApp::InitInstance()
     }
 
     pFrame->ActivateFrame(m_nCmdShow);
+
+    // From here on Explorer can hand this instance a selection through COM. Registered
+    // before anything below pumps messages, so an instance COM started for that purpose
+    // is reachable before the first-run prompt can hold it up.
+    m_shellDropTargetServer.Register(pFrame);
 
     if (AfxGetAppSettings().HasFixedWindowSize() && IsWindows8OrGreater()) {//make adjustments for drop shadow frame
         CRect rect, frame;
@@ -2531,6 +2668,7 @@ int CMPlayerCApp::ExitInstance()
 
     MH_Uninitialize();
 
+    m_shellDropTargetServer.Revoke();
     OleUninitialize();
 
     return CWinAppEx::ExitInstance();
