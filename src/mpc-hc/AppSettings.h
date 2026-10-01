@@ -806,6 +806,7 @@ public:
         ULONG   ulBandwidth;        // kHz; 0 means use iBDABandwidth
         ULONG   ulSymbolRate;       // 0 means use iBDASymbolRate
         CString strOutputPath;      // where the JSON is written
+        bool    bSaveChannels;      // /dvbscansave: the result becomes the saved channel list
     } cmdlnDVBScan;
 
     // Internal Filters
@@ -864,6 +865,7 @@ public:
     int             iModernSeekbarHeight;
 
     CMPCTheme::ModernThemeMode eModernThemeMode;
+    int             iModernThemeStyle;
 
     int             iFullscreenDelay;
 
@@ -1049,6 +1051,7 @@ public:
     int iRedirectOpenToAppendThreshold;
     bool bFullscreenSeparateControls;
     bool bAlwaysUseShortMenu;
+    bool bWin11NativeMenus;
     int iStillVideoDuration;
     int iMouseLeftUpDelay;
 

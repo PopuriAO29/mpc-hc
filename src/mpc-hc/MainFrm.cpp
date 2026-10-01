@@ -20,6 +20,7 @@
  */
 
 #include "stdafx.h"
+#include <optional>
 #include "MainFrm.h"
 #include "mplayerc.h"
 #include "version.h"
@@ -330,6 +331,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 
     ON_MESSAGE(WM_POSTOPEN, OnFilePostOpenmedia)
     ON_MESSAGE(WM_OPENFAILED, OnOpenMediaFailed)
+    ON_MESSAGE(WM_MPC_RUN_DEFERRED, OnRunDeferredActions)
     ON_MESSAGE(WM_TUNER_NEW_CHANNEL, OnHeadlessScanNewChannel)
     ON_MESSAGE(WM_TUNER_SCAN_END, OnHeadlessScanEnd)
     ON_MESSAGE(WM_DVB_EIT_DATA_READY, OnCurrentChannelInfoUpdated)
@@ -1295,9 +1297,112 @@ void CMainFrame::OnDestroy()
     __super::OnDestroy();
 }
 
+// A dialog raised inside OnTimer or OnGraphNotify runs a nested message pump,
+// and quartz.dll can pump messages inside an IMediaControl call. A close or open
+// started from inside such a pump would run underneath a holder that still has
+// the graph interfaces (OnTimer, OnGraphNotify, OpenMedia, CloseMedia, OnClose,
+// MediaControl*), and the holder would continue with released pointers when the
+// pump returns. While one of them is on the stack the requests are recorded and
+// run from the top-level pump once the outermost holder has returned.
+CMainFrame::CDeferredActionScope::CDeferredActionScope(CMainFrame& frame)
+    : m_frame(frame)
+{
+    m_frame.m_nDeferredActionDepth++;
+}
+
+CMainFrame::CDeferredActionScope::~CDeferredActionScope()
+{
+    // scope based, so an exception thrown out of the holder cannot leave the
+    // counter latched nonzero. Post from here rather than from the request: a
+    // message posted from inside the nested pump would be dispatched straight
+    // back into it. Nothing is posted once OnClose has started.
+    if (--m_frame.m_nDeferredActionDepth == 0 && ::IsWindow(m_frame.m_hWnd) && !m_frame.m_OnClose_called
+            && (!m_frame.m_deferredActions.empty() || m_frame.m_bDeferredOnClose)) {
+        m_frame.PostMessage(WM_MPC_RUN_DEFERRED);
+    }
+}
+
+LRESULT CMainFrame::OnRunDeferredActions(WPARAM wParam, LPARAM lParam)
+{
+    if (m_nDeferredActionDepth > 0) {
+        // dispatched from inside another holder's nested pump; that holder's
+        // scope exit posts again once it is done
+        return 0;
+    }
+
+    if (m_OnClose_called || AfxGetMyApp()->m_fClosingState) {
+        // the player is exiting; a deferred open would trip OpenMedia's m_OnClose_called check
+        m_bDeferredOnClose = false;
+        m_deferredActions.clear();
+        return 0;
+    }
+
+    if (m_bDeferredOnClose) {
+        // exiting anyway, so the pending opens and closes are pointless
+        m_bDeferredOnClose = false;
+        m_deferredActions.clear();
+        PostMessage(WM_CLOSE);
+        return 0;
+    }
+
+    // an action that pumps records new requests into the member; those are posted
+    // again by its own scope exit, so run from a local copy
+    std::vector<DeferredAction> actions;
+    actions.swap(m_deferredActions);
+
+    // only the last open or close is still wanted: an open closes first, and a
+    // close after an open makes that open pointless. Other entries (appends to
+    // the playlist) keep their items and run in order
+    size_t lastOpenOrClose = actions.size();
+    for (size_t i = 0; i < actions.size(); i++) {
+        if (actions[i].type != DeferredActionType::Other) {
+            lastOpenOrClose = i;
+        }
+    }
+    for (size_t i = 0; i < actions.size(); i++) {
+        if (m_bDeferredOnClose || m_OnClose_called || m_OnClose_queued) {
+            // an exit was requested, here or while running the earlier ones, so
+            // what is left is pointless. A queued close posted WM_CLOSE itself
+            break;
+        }
+        if (actions[i].type != DeferredActionType::Other && i != lastOpenOrClose) {
+            continue;
+        }
+        actions[i].run();
+    }
+
+    return 0;
+}
+
+// While a scope holder is on the stack a handler that closes the current file,
+// does something else and then opens (see CloseMediaBeforeOpen) records itself
+// here and returns; the whole sequence then runs from the top-level pump.
+// Returns true when the action was recorded.
+bool CMainFrame::DeferIfNested(DeferredActionType type, std::function<void()> action)
+{
+    if (m_nDeferredActionDepth == 0) {
+        return false;
+    }
+    m_deferredActions.push_back({ type, std::move(action) });
+    return true;
+}
+
 void CMainFrame::OnClose()
 {
     CAppSettings& s = AfxGetAppSettings();
+
+    if (m_nDeferredActionDepth > 0) {
+        // reached from inside a holder's nested pump; the exit runs once that
+        // holder has returned (see OnRunDeferredActions). Queued like a posted
+        // SC_CLOSE, so an open dispatched in between is dropped
+        m_bDeferredOnClose = true;
+        m_OnClose_queued = true;
+        return;
+    }
+
+    // below the check above: a deferred close releases nothing here, so the
+    // assert fires only when the release is really about to happen
+    ASSERT(!InSendMessage());
 
     if (m_OnClose_called) {
         ASSERT(false);
@@ -1308,6 +1413,12 @@ void CMainFrame::OnClose()
         #endif
         return;
     }
+
+    // held in an optional so it can be released before __super::OnClose(),
+    // which deletes the frame (CFrameWnd::PostNcDestroy)
+    std::optional<CDeferredActionScope> actionScope;
+    actionScope.emplace(*this);
+
     m_OnClose_called = true;
 
     if (USE_LOGGER(s)) {
@@ -1338,7 +1449,7 @@ void CMainFrame::OnClose()
     m_wndPlaylistBar.ClearExternalPlaylistIfInvalid();
 
     if (GetLoadState() == MLS::LOADED || GetLoadState() == MLS::LOADING) {
-        CloseMedia();
+        CloseMediaInternal();
     }
 
     s.WinLircClient.DisConnect();
@@ -1377,6 +1488,7 @@ void CMainFrame::OnClose()
         FLUSH_LOGGER();
     }
 
+    actionScope.reset();
     __super::OnClose();
 }
 
@@ -1722,6 +1834,7 @@ void CMainFrame::OnMove(int x, int y)
     }
 
     WINDOWPLACEMENT wp;
+    wp.length = sizeof(wp);
     GetWindowPlacement(&wp);
     if (!m_bNeedZoomAfterFullscreenExit && !m_fFullScreen && IsWindowVisible() && wp.flags != WPF_RESTORETOMAXIMIZED && wp.showCmd != SW_SHOWMINIMIZED) {
         GetWindowRect(AfxGetAppSettings().rcLastWindowPos);
@@ -2105,7 +2218,8 @@ void CMainFrame::OnSysCommand(UINT nID, LPARAM lParam)
         }
     }
     if ((nID & 0xFFF0) == SC_CLOSE) {
-        OnClose();
+        m_OnClose_queued = true;
+        PostMessage(WM_CLOSE);
         return;
     }
 
@@ -2277,6 +2391,8 @@ double g_dRate = 1.0;
 
 void CMainFrame::OnTimer(UINT_PTR nIDEvent)
 {
+    CDeferredActionScope actionScope(*this);
+
     switch (nIDEvent) {
         case TIMER_WINDOW_FULLSCREEN:
             if (AfxGetAppSettings().iFullscreenDelay > 0 && IsWindows8OrGreater()) {//DWMWA_CLOAK not supported on 7
@@ -2834,6 +2950,10 @@ LRESULT CMainFrame::OnDoOpenCurPlaylist(WPARAM wParam, LPARAM lParam)
 {
     TRACE(L"OnDoOpenCurPlaylist\n");
 
+    if (DeferIfNested(DeferredActionType::Open, [this] { OnDoOpenCurPlaylist(0, 0); })) {
+        return S_OK;
+    }
+
     MSG msg;
     while (PeekMessage(&msg, nullptr, WM_MPC_OPENCURPLAYLIST, WM_MPC_OPENCURPLAYLIST, PM_REMOVE)) {
         TRACE(L"Dropping pending OpenCurPlaylist message\n");
@@ -2846,6 +2966,10 @@ LRESULT CMainFrame::OnDoOpenCurPlaylist(WPARAM wParam, LPARAM lParam)
             throw 1;
         }
 #endif
+        return S_OK;
+    }
+    if (m_OnClose_queued) {
+        // we know we are going to close, so no reason to open media
         return S_OK;
     }
 
@@ -3164,6 +3288,8 @@ void CMainFrame::GraphEventComplete()
 
 LRESULT CMainFrame::OnGraphNotify(WPARAM wParam, LPARAM lParam)
 {
+    CDeferredActionScope actionScope(*this);
+
     if (wParam != 0) {
         ASSERT(false);
         return S_OK;
@@ -3888,7 +4014,7 @@ void CMainFrame::OnInitMenuPopup(CMenu* pPopupMenu, UINT nIndex, BOOL bSysMenu) 
         return;
     }
 
-    if (!AppIsThemeLoaded()) { //themed menus draw accelerators already, no need to append
+    if (!AppNeedsThemedMenus()) { //themed menus draw accelerators already, no need to append
         for (UINT i = 0; i < uiMenuCount; ++i) {
             UINT nID = pPopupMenu->GetMenuItemID(i);
             //the dynamically named items not listed here (filters, shader presets, favorite discs, optical drives)
@@ -4513,10 +4639,18 @@ LRESULT CMainFrame::OnFilePostOpenmedia(WPARAM wParam, LPARAM lParam)
 
     // The device is open now, which is the one precondition DoTunerScan has.
     // Consume the switch so a later open cannot start a second scan.
-    if ((s.nCLSwitches & CLSW_DVBSCAN) && GetPlaybackMode() == PM_DIGITAL_CAPTURE) {
+    if (s.nCLSwitches & CLSW_DVBSCAN) {
         s.nCLSwitches &= ~CLSW_DVBSCAN;
-        m_bHeadlessDVBScan = true;
-        StartHeadlessDVBScan();
+        if (GetPlaybackMode() == PM_DIGITAL_CAPTURE) {
+            m_bHeadlessDVBScan = true;
+            StartHeadlessDVBScan();
+        } else {
+            // The default device is an analog one. It opened, but there is
+            // nothing to scan and nothing else would ever close the player.
+            TRACE(_T("/dvbscan: the capture device is not a digital one, abandoning the scan\n"));
+            AfxGetMyApp()->m_nExitCode = 1;
+            PostMessage(WM_CLOSE);
+        }
     }
 
     return 0;
@@ -4540,6 +4674,16 @@ LRESULT CMainFrame::OnOpenMediaFailed(WPARAM wParam, LPARAM lParam)
     if (AfxGetAppSettings().nCLSwitches & CLSW_DVBSCAN) {
         TRACE(_T("/dvbscan: the capture device failed to open, abandoning the scan\n"));
         AfxGetAppSettings().nCLSwitches &= ~CLSW_DVBSCAN;
+        AfxGetMyApp()->m_nExitCode = 1;
+        PostMessage(WM_CLOSE);
+    }
+
+    // OnFilePostOpenmedia is what sends the exit after the thumbnails are saved,
+    // and it never runs when the open fails. Report why and quit rather than sit
+    // idle with the reason on the status bar nobody is looking at.
+    if (AfxGetAppSettings().nCLSwitches & CLSW_THUMBNAILS) {
+        AfxGetAppSettings().nCLSwitches &= ~CLSW_THUMBNAILS;
+        AfxGetMyApp()->ReportCmdLineError(m_closingmsg);
         PostMessage(WM_CLOSE);
     }
 
@@ -4764,7 +4908,7 @@ void CMainFrame::ToolbarContextMenu(int iItem, int nIndex, CRect buttonRect) {
     
 
     if (subMenu) {
-        if (AppNeedsThemedControls()) {
+        if (AppIsThemeLoaded()) {
             subMenu->fulfillThemeReqs();
         }
         m_bTBDropdownActive = true;
@@ -5022,6 +5166,9 @@ void CMainFrame::OnFileOpenQuick()
     if (!IsStateClosedOrLoaded() || !IsWindow(m_wndPlaylistBar)) {
         return;
     }
+    if (DeferIfNested(DeferredActionType::Open, [this] { OnFileOpenQuick(); })) {
+        return;
+    }
 
     CAppSettings& s = AfxGetAppSettings();
     CString filter;
@@ -5073,6 +5220,9 @@ void CMainFrame::OnFileOpenQuick()
 void CMainFrame::OnFileOpenmedia()
 {
     if (!IsStateClosedOrLoaded() || !IsWindow(m_wndPlaylistBar) || IsD3DFullScreenMode()) {
+        return;
+    }
+    if (DeferIfNested(DeferredActionType::Open, [this] { OnFileOpenmedia(); })) {
         return;
     }
 
@@ -5255,6 +5405,14 @@ void CMainFrame::ProcessCommandLine(CAtlList<CString>& cmdln, ULONGLONG tArrived
     if (AfxGetMyApp()->m_fClosingState || m_bScanDlgOpened) {
         return;
     }
+    {
+        auto pCmdln = std::make_shared<CAtlList<CString>>();
+        pCmdln->AddTailList(&cmdln);
+        // may add to the playlist rather than open, so it is never discarded
+        if (DeferIfNested(DeferredActionType::Other, [this, pCmdln, tArrived] { ProcessCommandLine(*pCmdln, tArrived); })) {
+            return;
+        }
+    }
 
     CAppSettings& s = AfxGetAppSettings();
 
@@ -5272,7 +5430,7 @@ void CMainFrame::ProcessCommandLine(CAtlList<CString>& cmdln, ULONGLONG tArrived
     while (pos) {
         CString fullpath = MakeFullPath(s.slFilters.GetNext(pos));
 
-        CPath tmp(fullpath);
+        CLongPath tmp(fullpath);
         tmp.RemoveFileSpec();
         tmp.AddBackslash();
         CString path = tmp;
@@ -5373,6 +5531,7 @@ void CMainFrame::ProcessCommandLine(CAtlList<CString>& cmdln, ULONGLONG tArrived
                 s.strAnalogVideo == L"dummy" && s.strAnalogAudio == L"dummy") {
             TRACE(_T("/dvbscan: no capture device configured, nothing to scan\n"));
             s.nCLSwitches &= ~CLSW_DVBSCAN;
+            AfxGetMyApp()->m_nExitCode = 1;
             PostMessage(WM_CLOSE);
         } else {
             // /dvbscan implies opening the capture device, because DoTunerScan
@@ -5394,7 +5553,7 @@ void CMainFrame::ProcessCommandLine(CAtlList<CString>& cmdln, ULONGLONG tArrived
 
         if (OpenBD(s.slFiles.GetHead())) {
             // Nothing more to do
-        } else if (!fMulti && CPath(s.slFiles.GetHead() + _T("\\VIDEO_TS")).IsDirectory()) {
+        } else if (!fMulti && CLongPath(s.slFiles.GetHead() + _T("\\VIDEO_TS")).IsDirectory()) {
             fSetForegroundWindow = true;
 
             if (GetMediaState() == State_Running) {
@@ -5428,13 +5587,18 @@ void CMainFrame::ProcessCommandLine(CAtlList<CString>& cmdln, ULONGLONG tArrived
                     m_nLastAppendSelectionIndex = (int)m_wndPlaylistBar.GetCount();
                 }
 
-                POSITION pos2 = sl.GetHeadPosition();
-                while (pos2) {
-                    CString fn = sl.GetNext(pos2);
-                    if (!CanSendToYoutubeDL(fn) || !ProcessYoutubeDLURL(fn, true)) {
-                        CAtlList<CString> sl2;
-                        sl2.AddHead(fn);
-                        m_wndPlaylistBar.Append(sl2, false, &s.slSubs);
+                if (!fMulti && sl.GetCount() > 1) {
+                    // video + dub, appended as one entry like the open path below (#4224)
+                    m_wndPlaylistBar.Append(sl, false, &s.slSubs);
+                } else {
+                    POSITION pos2 = sl.GetHeadPosition();
+                    while (pos2) {
+                        CString fn = sl.GetNext(pos2);
+                        if (!CanSendToYoutubeDL(fn) || !ProcessYoutubeDLURL(fn, true)) {
+                            CAtlList<CString> sl2;
+                            sl2.AddHead(fn);
+                            m_wndPlaylistBar.Append(sl2, false, &s.slSubs);
+                        }
                     }
                 }
 
@@ -5619,6 +5783,9 @@ void CMainFrame::OnFileOpendevice()
     if (!IsStateClosedOrLoaded()) {
         return;
     }
+    if (DeferIfNested(DeferredActionType::Open, [this] { OnFileOpendevice(); })) {
+        return;
+    }
     if (!m_pAMTuner) { // no need to close if changing channel
         if (!CloseMediaBeforeOpen()) {
             return;
@@ -5652,6 +5819,9 @@ void CMainFrame::OnFileOpendevice()
 void CMainFrame::OnFileOpenOpticalDisk(UINT nID)
 {
     if (!IsStateClosedOrLoaded()) {
+        return;
+    }
+    if (DeferIfNested(DeferredActionType::Open, [this, nID] { OnFileOpenOpticalDisk(nID); })) {
         return;
     }
 
@@ -5747,7 +5917,7 @@ DROPEFFECT CMainFrame::OnDropAccept(COleDataObject* pDataObject, DWORD dwKeyStat
 bool CMainFrame::IsImageFile(CStringW fn) {
     if (fn.IsEmpty()) return false;
 
-    CPath path(fn);
+    CLongPath path(fn);
     CStringW ext(path.GetExtension());
     return IsImageFileExt(ext);
 }
@@ -5762,7 +5932,7 @@ bool CMainFrame::IsImageFileExt(CStringW ext) {
 }
 
 bool CMainFrame::IsPlaylistFile(CStringW fn) {
-    CPath path(fn);
+    CLongPath path(fn);
     CStringW ext(path.GetExtension());
     return IsPlaylistFileExt(ext);
 }
@@ -5803,18 +5973,28 @@ BOOL IsSubtitleExtension(CString ext)
 
 BOOL IsSubtitleFilename(CString filename)
 {
-    CString ext = CPath(filename).GetExtension().MakeLower();
+    CString ext = CLongPath(filename).GetExtension().MakeLower();
     return IsSubtitleExtension(ext);
 }
 
 bool CMainFrame::IsAudioFilename(CString filename)
 {
-    CString ext = CPath(filename).GetExtension();
+    CString ext = CLongPath(filename).GetExtension();
     return IsAudioFileExt(ext);
 }
 
 void CMainFrame::OnDropFiles(CAtlList<CStringW>& slFiles, DROPEFFECT dropEffect)
 {
+    {
+        auto pFiles = std::make_shared<CAtlList<CStringW>>();
+        pFiles->AddTailList(&slFiles);
+        // an append keeps its items, so it is never discarded
+        const auto type = (dropEffect & DROPEFFECT_APPEND) ? DeferredActionType::Other : DeferredActionType::Open;
+        if (DeferIfNested(type, [this, pFiles, dropEffect] { OnDropFiles(*pFiles, dropEffect); })) {
+            return;
+        }
+    }
+
     SetForegroundWindow();
 
     if (slFiles.IsEmpty()) {
@@ -5873,7 +6053,7 @@ void CMainFrame::OnDropFiles(CAtlList<CStringW>& slFiles, DROPEFFECT dropEffect)
             SetSubtitle(subInputSelected);
         }
         if (subloaded) {
-            CPath fn(subfile);
+            CLongPath fn(subfile);
             fn.StripPath();
             CString statusmsg(static_cast<LPCTSTR>(fn));
             SendStatusMessage(statusmsg + ResStr(IDS_SUB_LOADED_SUCCESS), 3000);
@@ -5935,7 +6115,7 @@ void CMainFrame::OnFileSaveAs()
         }
     } else {
         out = PathUtils::StripPathOrUrl(in);
-        ext = CPath(out).GetExtension().MakeLower();
+        ext = CLongPath(out).GetExtension().MakeLower();
         if (ext == _T(".cda")) {
             out = out.Left(out.GetLength() - 4) + _T(".wav");
         } else if (ext == _T(".ifo")) {
@@ -5959,7 +6139,7 @@ void CMainFrame::OnFileSaveAs()
         return;
     }
 
-    CPath p(out);
+    CLongPath p(out);
     if (!ext.IsEmpty()) {
         p.AddExtension(ext);
     }
@@ -6127,7 +6307,11 @@ BYTE* CMainFrame::ConvertDIBTo24bppRGB(BYTE* pData, long size, int& outWidth, in
 
 void CMainFrame::SaveDIB(LPCTSTR fn, BYTE* pData, long size)
 {
-    CPath path(fn);
+    CLongPath path(fn);
+
+    // GDI+ refuses to write to a path at or beyond MAX_PATH unless it carries the long path prefix
+    CString target(fn);
+    ExtendMaxPathLengthIfNeeded(target, true);
 
     int w, h, dstpitch;
     BYTE* p = ConvertDIBTo24bppRGB(pData, size, w, h, dstpitch);
@@ -6190,7 +6374,7 @@ void CMainFrame::SaveDIB(LPCTSTR fn, BYTE* pData, long size)
             }
         }
 
-        Gdiplus::Status s = bm->Save(fn, &encoderClsid, pEncoderParameters);
+        Gdiplus::Status s = bm->Save(target, &encoderClsid, pEncoderParameters);
 
         // All GDI+ objects must be destroyed before GdiplusShutdown is called
         delete bm;
@@ -6518,10 +6702,10 @@ void CMainFrame::SaveImage(LPCWSTR fn, bool displayed, bool includeSubtitles) {
     }
 }
 
-void CMainFrame::SaveThumbnails(LPCTSTR fn)
+bool CMainFrame::SaveThumbnails(LPCTSTR fn)
 {
     if (!m_pMC || !m_pMS || GetPlaybackMode() != PM_FILE /*&& GetPlaybackMode() != PM_DVD*/) {
-        return;
+        return false;
     }
 
     REFERENCE_TIME rtPos = GetPos();
@@ -6529,7 +6713,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
 
     if (rtDur <= 0) {
         AfxMessageBox(IDS_THUMBNAILS_NO_DURATION, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
 
     OAFilterState filterState = UpdateCachedMediaState();
@@ -6557,7 +6741,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
 
     if (szVideo.cx <= 0 || szVideo.cy <= 0) {
         AfxMessageBox(IDS_THUMBNAILS_NO_FRAME_SIZE, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
 
     // with the overlay mixer IBasicVideo2 won't tell the new AR when changed dynamically
@@ -6585,7 +6769,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     const LONGLONG llImageSize = (LONGLONG)width * llHeight * 4;
     if (llHeight <= 0 || llHeight > 32767 || llImageSize > INT_MAX - (LONGLONG)sizeof(BITMAPINFOHEADER)) {
         AfxMessageBox(IDS_OUT_OF_MEMORY, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
     int height = (int)llHeight;
 
@@ -6594,7 +6778,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     CAutoVectorPtr<BYTE> dib;
     if (!dib.Allocate(dibsize)) {
         AfxMessageBox(IDS_OUT_OF_MEMORY, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
 
     BITMAPINFOHEADER* bih = (BITMAPINFOHEADER*)(BYTE*)dib;
@@ -6616,7 +6800,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     spd.vidrect = CRect(0, 0, width, height);
     spd.bits = (BYTE*)(bih + 1) + (width * 4) * (height - 1);
 
-    bool darktheme = s.bMPCTheme && s.eModernThemeMode == CMPCTheme::ModernThemeMode::DARK;
+    bool darktheme = AppIsThemeLoaded() && s.eModernThemeMode == CMPCTheme::ModernThemeMode::DARK;
 
     int gradientBase = 0xe0;
     if (darktheme) {
@@ -6638,14 +6822,14 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     // Ensure the thumbnails aren't ridiculously small so that the time indication can at least fit
     if (szThumbnail.cx < 60 || szThumbnail.cy < 20) {
         AfxMessageBox(IDS_THUMBNAIL_TOO_SMALL, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
 
     // Allocate before muting, so a failure here does not leave the player silent
     std::unique_ptr<BYTE[]> thumb(new(std::nothrow) BYTE[szThumbnail.cx * szThumbnail.cy * 4]);
     if (!thumb) {
         AfxMessageBox(IDS_OUT_OF_MEMORY, MB_ICONWARNING | MB_OK, 0);
-        return;
+        return false;
     }
 
     m_nVolumeBeforeFrameStepping = m_wndToolBar.Volume;
@@ -6674,7 +6858,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
                 m_pBA->put_Volume(m_nVolumeBeforeFrameStepping);
             }
             AfxMessageBox(IDS_FRAME_STEP_ERROR_RENDERER, MB_ICONEXCLAMATION | MB_OK, 0);
-            return;
+            return false;
         }
 
         bool abortloop = false;
@@ -6744,7 +6928,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
             if (m_pBA) {
                 m_pBA->put_Volume(m_nVolumeBeforeFrameStepping);
             }
-            return;
+            return false;
         }
 
         BITMAPINFO* bi = (BITMAPINFO*)pData;
@@ -6757,7 +6941,7 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
             if (m_pBA) {
                 m_pBA->put_Volume(m_nVolumeBeforeFrameStepping);
             }
-            return;
+            return false;
         }
 
         int sw = bi->bmiHeader.biWidth;
@@ -6868,6 +7052,8 @@ void CMainFrame::SaveThumbnails(LPCTSTR fn)
     }
 
     m_OSD.DisplayMessage(OSD_TOPLEFT, ResStr(IDS_OSD_THUMBS_SAVED), 3000);
+
+    return true;
 }
 
 CString CMainFrame::MakeSnapshotFileName(BOOL thumbnails)
@@ -6990,11 +7176,11 @@ void CMainFrame::OnFileSaveImage()
         return;
     }
 
-    CPath psrc;
+    CLongPath psrc;
     if (!s.strSnapshotPath.IsEmpty() && PathUtils::IsDir(s.strSnapshotPath)) {
         psrc.Combine(s.strSnapshotPath.GetString(), MakeSnapshotFileName(FALSE));
     } else {
-        psrc = CPath(MakeSnapshotFileName(FALSE));        
+        psrc = CLongPath(MakeSnapshotFileName(FALSE));        
     }
 
     bool subtitleOptionSupported = !m_pMVRFG && s.fEnableSubtitles && s.IsISRAutoLoadEnabled();
@@ -7024,7 +7210,7 @@ void CMainFrame::OnFileSaveImage()
         s.strSnapshotExt = _T(".png");
     }
 
-    CPath pdst(fd.GetPathName());
+    CLongPath pdst(fd.GetPathName());
     CString ext(pdst.GetExtension().MakeLower());
     if (ext != s.strSnapshotExt) {
         if (ext == _T(".bmp") || ext == _T(".jpg") || ext == _T(".png")) {
@@ -7085,10 +7271,11 @@ void CMainFrame::OnCmdLineSaveThumbnails()
 
     CPlaylistItem pli;
     if (!m_wndPlaylistBar.GetCur(pli, true)) {
+        AfxGetMyApp()->ReportCmdLineError(_T("no file to take thumbnails of"));
         return;
     }
 
-    CPath psrc(m_wndPlaylistBar.GetCurFileName(true));
+    CLongPath psrc(m_wndPlaylistBar.GetCurFileName(true));
     psrc.RemoveFileSpec();
     psrc.Combine(psrc, MakeSnapshotFileName(TRUE));
 
@@ -7097,9 +7284,19 @@ void CMainFrame::OnCmdLineSaveThumbnails()
     s.iThumbWidth = std::clamp(s.iThumbWidth, 256, 3840);
 
     CString path = (LPCTSTR)psrc;
+    if (path.IsEmpty() || psrc.IsRelative()) {
+        // Combine hands back an unusable destination two ways, neither of them an
+        // error it reports. The result is empty when it refuses a path it cannot
+        // resolve safely; and when the file name arrived without a directory the
+        // result is the bare file name, which SaveDIB would write into the program
+        // folder rather than beside the video, with nothing to say it went astray.
+        AfxGetMyApp()->ReportCmdLineError(_T("thumbnail output path could not be resolved"));
+        return;
+    }
 
-    SaveThumbnails(path);
-
+    if (!SaveThumbnails(path)) {
+        AfxGetMyApp()->m_nExitCode = 1;
+    }
 }
 
 void CMainFrame::OnFileSaveThumbnails()
@@ -7111,7 +7308,7 @@ void CMainFrame::OnFileSaveThumbnails()
         return;
     }
 
-    CPath psrc(s.strSnapshotPath);
+    CLongPath psrc(s.strSnapshotPath);
     psrc.Combine(s.strSnapshotPath, MakeSnapshotFileName(TRUE));
 
     CSaveThumbnailsDialog fd(s.nJpegQuality, s.iThumbRows, s.iThumbCols, s.iThumbWidth, s.strSnapshotExt, (LPCTSTR)psrc,
@@ -7143,7 +7340,7 @@ void CMainFrame::OnFileSaveThumbnails()
     s.iThumbCols = std::clamp(fd.m_cols, 1, 16);
     s.iThumbWidth = std::clamp(fd.m_width, 256, 3840);
 
-    CPath pdst(fd.GetPathName());
+    CLongPath pdst(fd.GetPathName());
     CString ext(pdst.GetExtension().MakeLower());
     if (ext != s.strSnapshotExt) {
         if (ext == _T(".bmp") || ext == _T(".jpg") || ext == _T(".png")) {
@@ -7152,7 +7349,6 @@ void CMainFrame::OnFileSaveThumbnails()
             ext += s.strSnapshotExt;
         }
         if (!pdst.RenameExtension(ext)) {
-            // ToDo: write helper functions for renaming that support long paths
             ASSERT(false);
             return;
         }
@@ -7198,7 +7394,7 @@ void CMainFrame::OnFileSubtitlesLoad()
     ofn.nMaxFile = nBufferSize;
     // Set the current file directory as default folder
     CString curfile = m_wndPlaylistBar.GetCurFileName();
-    CPathW defaultDir; // must outlive DoModal(), ofn.lpstrInitialDir points into it
+    CLongPath defaultDir; // must outlive DoModal(), ofn.lpstrInitialDir points into it
     if (!PathUtils::IsURL(curfile)) {
         ExtendMaxPathLengthIfNeeded(curfile, true);
         defaultDir = curfile.GetString();
@@ -7273,18 +7469,18 @@ void CMainFrame::SubtitlesSave(const TCHAR* directory, bool silent)
         }
         suggestedFileName = _T("subtitle");
     } else {
-        CPath path(lastOpenFile);
+        CLongPath path(lastOpenFile);
         path.RemoveExtension();
         suggestedFileName = CString(path);
     }
 
     if (directory && *directory) {
-        CPath suggestedPath(suggestedFileName);
+        CLongPath suggestedPath(suggestedFileName);
         int pos = suggestedPath.FindFileName();
         CString fileName = suggestedPath.m_strPath.Mid(pos);
-        CPath dirPath(directory);
+        CLongPath dirPath(directory);
         if (dirPath.IsRelative()) {
-            dirPath = CPath(suggestedPath.m_strPath.Left(pos)) += dirPath;
+            dirPath = CLongPath(suggestedPath.m_strPath.Left(pos)) += dirPath;
         }
         if (EnsureDirectory(dirPath)) {
             suggestedFileName = CString(dirPath += fileName);
@@ -8364,7 +8560,7 @@ void CMainFrame::OnViewOSDShowFileName()
                 if (SUCCEEDED(m_pDVDI->GetDVDDirectory(path.GetBuffer(MAX_PATH), MAX_PATH, &len)) && len) {
                     path.ReleaseBuffer();
                     if (path.Find(_T("\\VIDEO_TS")) == 2) {
-                        strOSD.AppendFormat(_T(" - %s"), GetDriveLabel(CPath(path)).GetString());
+                        strOSD.AppendFormat(_T(" - %s"), GetDriveLabel(CLongPath(path)).GetString());
                     } else {
                         strOSD.AppendFormat(_T(" - %s"), path.GetString());
                     }
@@ -11011,7 +11207,7 @@ void CMainFrame::OnSecondarySubtitleLoad()
     OPENFILENAME& ofn = fd.GetOFN();
     // Set the current file directory as default folder
     CString curfile = m_wndPlaylistBar.GetCurFileName();
-    CPathW defaultDir; // must outlive DoModal(), ofn.lpstrInitialDir points into it
+    CLongPath defaultDir; // must outlive DoModal(), ofn.lpstrInitialDir points into it
     if (!PathUtils::IsURL(curfile)) {
         ExtendMaxPathLengthIfNeeded(curfile, true);
         defaultDir = curfile.GetString();
@@ -12218,6 +12414,10 @@ void CMainFrame::OnFavoritesFile(UINT nID)
 
 void CMainFrame::PlayFavoriteFile(const CString& fav)
 {
+    if (DeferIfNested(DeferredActionType::Open, [this, fav] { PlayFavoriteFile(fav); })) {
+        return;
+    }
+
     CAtlList<CString> args;
     REFERENCE_TIME rtStart = 0;
     FileFavorite ff = ParseFavoriteFile(fav, args, &rtStart);
@@ -12273,14 +12473,14 @@ FileFavorite CMainFrame::ParseFavoriteFile(const CString& fav, CAtlList<CString>
         // Get the drive MPC-HC is on and apply it to the path list
         CString exePath = PathUtils::GetProgramPath(true);
 
-        CPath exeDrive(exePath);
+        CLongPath exeDrive(exePath);
 
         if (exeDrive.StripToRoot()) {
             POSITION pos = args.GetHeadPosition();
 
             while (pos != nullptr) {
                 CString& stringPath = args.GetNext(pos);    // Note the reference (!)
-                CPath path(stringPath);
+                CLongPath path(stringPath);
 
                 int rootLength = path.SkipRoot();
 
@@ -12324,6 +12524,10 @@ void CMainFrame::OnRecentFile(UINT nID)
 
 void CMainFrame::OpenRecentFileEntry(RecentFileEntry& r)
 {
+    if (DeferIfNested(DeferredActionType::Open, [this, r] { RecentFileEntry entry(r); OpenRecentFileEntry(entry); })) {
+        return;
+    }
+
     CAtlList<CString> fns;
     fns.AddHeadList(&r.fns);
 
@@ -12387,6 +12591,9 @@ void CMainFrame::OnFavoritesDVD(UINT nID)
 
 void CMainFrame::PlayFavoriteDVD(CString fav)
 {
+    if (DeferIfNested(DeferredActionType::Open, [this, fav] { PlayFavoriteDVD(fav); })) {
+        return;
+    }
     if (!CloseMediaBeforeOpen()) {
         return;
     }
@@ -12699,6 +12906,9 @@ OAFilterState CMainFrame::UpdateCachedMediaState()
 
 bool CMainFrame::MediaControlRun(bool waitforcompletion)
 {
+    // quartz.dll can pump messages (PeekMessage) inside IMediaControl calls, so a close or
+    // open dispatched there is deferred like one from OnTimer
+    CDeferredActionScope actionScope(*this);
     m_dwLastPause = 0ULL;
     if (m_pMC) {
         m_CachedFilterState = State_Running;
@@ -12718,6 +12928,7 @@ bool CMainFrame::MediaControlRun(bool waitforcompletion)
 
 bool CMainFrame::MediaControlPause(bool waitforcompletion)
 {
+    CDeferredActionScope actionScope(*this);
     m_dwLastPause = GetTickCount64();
     if (m_pMC) {
         m_CachedFilterState = State_Paused;
@@ -12737,6 +12948,7 @@ bool CMainFrame::MediaControlPause(bool waitforcompletion)
 
 bool CMainFrame::MediaControlStop(bool waitforcompletion)
 {
+    CDeferredActionScope actionScope(*this);
     m_dwLastPause = 0ULL;
     if (m_pMC) {
         m_pMC->GetState(0, &m_CachedFilterState);
@@ -12762,6 +12974,7 @@ bool CMainFrame::MediaControlStop(bool waitforcompletion)
 
 bool CMainFrame::MediaControlStopPreview()
 {
+    CDeferredActionScope actionScope(*this);
     if (m_pMC_preview) {
         OAFilterState fs = -1;
         m_pMC_preview->GetState(0, &fs);
@@ -14311,7 +14524,7 @@ void CMainFrame::OpenCreateGraphObject(OpenMediaData* pOMD)
             if (PathUtils::IsURL(firstfilename)) {
                 m_bUseSeekPreview = false;
             } else {
-                CString ext = CPath(firstfilename).GetExtension().MakeLower();
+                CString ext = CLongPath(firstfilename).GetExtension().MakeLower();
                 if (IsAudioFileExt(ext) || ext == L".avs" || PathIsOnOpticalDisc(firstfilename)) {
                     m_bUseSeekPreview = false;
                 }
@@ -14772,7 +14985,7 @@ void CMainFrame::OpenFile(OpenFileData* pOFD)
         HRESULT rarHR = E_NOTIMPL;
 #if INTERNAL_SOURCEFILTER_RFS
         if (s.SrcFilters[SRC_RFS] && !PathUtils::IsURL(fn)) {
-            CString ext = CPath(fn).GetExtension().MakeLower();
+            CString ext = CLongPath(fn).GetExtension().MakeLower();
             if (ext == L".rar") {
                 rarHR = HandleMultipleEntryRar(fn, &pOFD->rarEntryIndex);
             }
@@ -15116,7 +15329,7 @@ void CMainFrame::SetupExternalChapters()
         return;
     }
 
-    CPath cp(fn);
+    CLongPath cp(fn);
     if (!cp.RenameExtension(_T(".xchp")) || !cp.FileExists()) {
         return;
     }
@@ -15295,7 +15508,7 @@ void CMainFrame::SetupCueChapters(CString cuefn) {
         }
     }
     else {
-        CPath basefilepath(cuefn);
+        CLongPath basefilepath(cuefn);
         basefilepath.RemoveFileSpec();
         basefilepath.AddBackslash();
         base = basefilepath.m_strPath;
@@ -15317,13 +15530,8 @@ void CMainFrame::SetupCueChapters(CString cuefn) {
             performer = str.Mid(10).Trim(_T("\""));
         }
         else if (str.Left(4) == _T("FILE")) {
-            if (str.Right(4) == _T("WAVE") || str.Right(3) == _T("MP3") || str.Right(4) == _T("FLAC") || str.Right(4) == _T("AIFF")) {
-                CString file_entry;
-                if (str.Right(3) == _T("MP3")) {
-                    file_entry = str.Mid(5, str.GetLength() - 9).Trim(_T("\""));
-                } else {
-                    file_entry = str.Mid(5, str.GetLength() - 10).Trim(_T("\""));
-                }
+            CString file_entry;
+            if (ParseCUEFileLine(str, file_entry)) {
                 if (file_entry != lastfile) {
                     cue_index++;
                     lastfile = file_entry;
@@ -15351,9 +15559,10 @@ void CMainFrame::SetupCueChapters(CString cuefn) {
             else if (str.Left(5) == _T("INDEX")) {
                 CT2CA tmp(str.Mid(6));
                 const char* tmp2(tmp);
-                int i1(0), m(0), s(0), ms(0);
-                sscanf_s(tmp2, "%d %d:%d:%d", &i1, &m, &s, &ms);
-                if (i1 != 0) track.time = 10000i64 * ((m * 60 + s) * 1000 + ms);
+                int i1(0), m(0), s(0), ff(0);
+                sscanf_s(tmp2, "%d %d:%d:%d", &i1, &m, &s, &ff);
+                // ff is frames at 75 per second, so 75 or more can only come from a writer that emitted milliseconds
+                if (i1 != 0) track.time = 10000i64 * ((m * 60 + s) * 1000 + (ff >= 75 ? ff : ff * 1000 / 75));
             }
         }
     }
@@ -15362,26 +15571,35 @@ void CMainFrame::SetupCueChapters(CString cuefn) {
         trackl.AddTail(track);
     }
 
-    if (trackl.GetCount() >= 1) {
-        POSITION p = trackl.GetHeadPosition();
-        bool b(true);
-        do {
-            if (p == trackl.GetTailPosition()) b = false;
-            CueTrackMeta c(trackl.GetNext(p));
-            if (cue_index == 0 || (cue_index > 0 && c.fileID == pli.m_cue_index)) {
-                CString label;
-                if (!c.title.IsEmpty()) {
-                    label = c.title;
-                    if (!c.performer.IsEmpty()) {
-                        label += (_T(" - ") + c.performer);
-                    }
-                    else if (!performer.IsEmpty()) {
-                        label += (_T(" - ") + performer);
-                    }
+    // when the file holds a single track (the whole album) there is nothing to chapter
+    int chapcount = 0;
+    POSITION p = trackl.GetHeadPosition();
+    while (p) {
+        const CueTrackMeta& c = trackl.GetNext(p);
+        if (cue_index == 0 || (cue_index > 0 && c.fileID == pli.m_cue_index)) {
+            chapcount++;
+        }
+    }
+    if (chapcount < 2) {
+        return;
+    }
+
+    p = trackl.GetHeadPosition();
+    while (p) {
+        const CueTrackMeta& c = trackl.GetNext(p);
+        if (cue_index == 0 || (cue_index > 0 && c.fileID == pli.m_cue_index)) {
+            CString label;
+            if (!c.title.IsEmpty()) {
+                label = c.title;
+                if (!c.performer.IsEmpty()) {
+                    label += (_T(" - ") + c.performer);
                 }
-                m_pCB->ChapAppend(c.time, label);
+                else if (!performer.IsEmpty()) {
+                    label += (_T(" - ") + performer);
+                }
             }
-        } while (b);
+            m_pCB->ChapAppend(c.time, label);
+        }
     }
 }
 
@@ -15968,7 +16186,7 @@ void CMainFrame::OpenSetupInfoBar(bool bClear /*= true*/)
         }
 
         bRecalcLayout |= m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_TITLE), title);
-        UpdateChapterInInfoBar();
+        bRecalcLayout |= UpdateChapterInInfoBar(false);
         bRecalcLayout |= m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_AUTHOR), author);
         bRecalcLayout |= m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_COPYRIGHT), copyright);
         bRecalcLayout |= m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_RATING), rating);
@@ -15987,7 +16205,7 @@ void CMainFrame::OpenSetupInfoBar(bool bClear /*= true*/)
     }
 }
 
-void CMainFrame::UpdateChapterInInfoBar()
+bool CMainFrame::UpdateChapterInInfoBar(bool bRecalcLayout /*= true*/)
 {
     CString chapter;
     if (m_pCB && m_pMS) {
@@ -16007,9 +16225,11 @@ void CMainFrame::UpdateChapterInInfoBar()
             }
         }
     }
-    if (m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_CHAPTER), chapter)) {
+    bool bChanged = m_wndInfoBar.SetLine(StrRes(IDS_INFOBAR_CHAPTER), chapter);
+    if (bChanged && bRecalcLayout) {
         RecalcLayout();
     }
+    return bChanged;
 }
 
 void CMainFrame::OpenSetupStatsBar()
@@ -16272,7 +16492,7 @@ void CMainFrame::OpenSetupWindowTitle(bool reset /*= false*/)
                 if (m_pDVDI && SUCCEEDED(m_pDVDI->GetDVDDirectory(path.GetBufferSetLength(MAX_PATH), MAX_PATH, &len)) && len) {
                     path.ReleaseBuffer();
                     if (path.Find(_T("\\VIDEO_TS")) == 2) {
-                        title.AppendFormat(_T(" - %s"), GetDriveLabel(CPath(path)).GetString());
+                        title.AppendFormat(_T(" - %s"), GetDriveLabel(CLongPath(path)).GetString());
                     }
                 }
             }
@@ -16698,7 +16918,7 @@ bool CMainFrame::OpenMediaPrivate(CAutoPtr<OpenMediaData> pOMD)
         FLUSH_LOGGER();
     }
 
-    if (m_pGB || m_ActiveGraphNotifyEvCode == EC_PAUSED || GetLoadState() != MLS::LOADING || m_OnClose_called) {
+    if (m_pGB || m_ActiveGraphNotifyEvCode == EC_PAUSED || GetLoadState() != MLS::LOADING || m_OnClose_called || m_OnClose_queued) {
         ASSERT(false);
         #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER
         if (CrashReporter::IsEnabled()) {
@@ -17263,7 +17483,7 @@ bool CMainFrame::WildcardFileSearch(CString searchstr, std::set<CString, CString
     if (h != INVALID_HANDLE_VALUE) {
         CString search_ext = searchstr.Mid(searchstr.ReverseFind('.')).MakeLower();
         bool other_ext = (search_ext != _T(".*"));
-        CStringW curExt = CPath(m_wndPlaylistBar.GetCurFileName()).GetExtension().MakeLower();
+        CStringW curExt = CLongPath(m_wndPlaylistBar.GetCurFileName()).GetExtension().MakeLower();
 
         auto addFile = [&](const CString& fn) {
             results.insert(fn);
@@ -17349,7 +17569,7 @@ bool CMainFrame::SearchInDir(bool bDirForward, bool bLoop /*= false*/)
     // even if it's of an unknown format.
     auto current = filelist.insert(filename).first;
 
-    if (filelist.size() < 2 && CPath(filename).FileExists()) {
+    if (filelist.size() < 2 && CLongPath(filename).FileExists()) {
         return false;
     }
 
@@ -17611,7 +17831,7 @@ void CMainFrame::LoadDynamicMenus() {
 
 void CMainFrame::SetupOpenCDSubMenu()
 {
-    CMenu& subMenu = m_openCDsMenu;
+    CMPCThemeMenu& subMenu = m_openCDsMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -17834,7 +18054,7 @@ void CMainFrame::SetupFiltersSubMenu()
 
 void CMainFrame::SetupAudioSubMenu()
 {
-    CMenu& subMenu = m_audiosMenu;
+    CMPCThemeMenu& subMenu = m_audiosMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -17951,7 +18171,7 @@ void CMainFrame::SetupAudioSubMenu()
 
 void CMainFrame::SetupSubtitlesSubMenu()
 {
-    CMenu& subMenu = m_subtitlesMenu;
+    CMPCThemeMenu& subMenu = m_subtitlesMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -18243,7 +18463,7 @@ SubtitleInput* CMainFrame::GetSecondarySubtitleInput(int idx)
 
 void CMainFrame::SetupSecondarySubtitleSubMenu()
 {
-    CMenu& subMenu = m_subtitlesSecondaryMenu;
+    CMPCThemeMenu& subMenu = m_subtitlesSecondaryMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -18297,7 +18517,7 @@ void CMainFrame::SetupSecondarySubtitleSubMenu()
 
 void CMainFrame::SetupVideoStreamsSubMenu()
 {
-    CMenu& subMenu = m_videoStreamsMenu;
+    CMPCThemeMenu& subMenu = m_videoStreamsMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -18673,7 +18893,7 @@ void CMainFrame::OnStreamSelect(bool bForward, DWORD dwSelGroup)
 
         size_t count = streams.size();
         if (count && currentSel != SIZE_MAX) {
-            size_t requested = (bForward ? currentSel + 1 : currentSel - 1) % count;
+            size_t requested = (bForward ? currentSel + 1 : currentSel + count - 1) % count;
             DWORD id;
             int trackindex;
             LCID lcid = 0;
@@ -18751,7 +18971,7 @@ void CMainFrame::SetupRecentFilesSubMenu()
     }
     recentFilesMenuFromMRUSequence = MRU.listModifySequence;
 
-    CMenu& subMenu = m_recentFilesMenu;
+    CMPCThemeMenu& subMenu = m_recentFilesMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
    
@@ -18812,7 +19032,7 @@ void CMainFrame::SetupRecentFilesSubMenu()
 
 void CMainFrame::SetupFavoritesSubMenu()
 {
-    CMenu& subMenu = m_favoritesMenu;
+    CMPCThemeMenu& subMenu = m_favoritesMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -18925,7 +19145,7 @@ bool CMainFrame::SetupShadersSubMenu()
 {
     const auto& s = AfxGetAppSettings();
 
-    CMenu& subMenu = m_shadersMenu;
+    CMPCThemeMenu& subMenu = m_shadersMenu;
     // Empty the menu
     while (subMenu.RemoveMenu(0, MF_BYPOSITION));
 
@@ -19081,7 +19301,7 @@ bool CMainFrame::LoadSubtitle(CString fn, SubtitleInput* pSubInput /*= nullptr*/
         videoName = m_wndPlaylistBar.GetCurFileName();
     }
 
-    CString ext = CPath(fn).GetExtension().MakeLower();
+    CString ext = CLongPath(fn).GetExtension().MakeLower();
 
     if (!pSubStream && (ext == _T(".idx") || !bAutoLoad && ext == _T(".sub"))) {
         CAutoPtr<CVobSubFile> pVSF(DEBUG_NEW CVobSubFile(&m_csSubLock));
@@ -20435,13 +20655,18 @@ bool CMainFrame::StopCapture()
 
 void CMainFrame::ShowOptions(int idPage/* = 0*/)
 {
+    if (AfxGetMyApp()->m_fClosingState) {
+        ASSERT(false);
+        return;
+    }
+
     // Disable the options dialog when using D3D fullscreen
     if (IsD3DFullScreenMode() && !m_bFullScreenWindowIsOnSeparateDisplay) {
         return;
     }
 
     // show warning when INI file is read-only
-    CPath iniPath = AfxGetMyApp()->GetIniPath();
+    CLongPath iniPath = AfxGetMyApp()->GetIniPath();
     if (PathUtils::Exists(iniPath)) {
         HANDLE hFile = CreateFile(iniPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) {
@@ -20533,6 +20758,13 @@ bool CMainFrame::CanPreviewUse() {
 void CMainFrame::OpenCurPlaylistItem(REFERENCE_TIME rtStart, bool reopen /* = false */, ABRepeat abRepeat /* = ABRepeat() */)
 {
     if (IsPlaylistEmpty()) {
+        // Nothing was opened, so there is no failure to report either. A
+        // headless run has to be told that it is over.
+        if (AfxGetAppSettings().nCLSwitches & CLSW_THUMBNAILS) {
+            AfxGetAppSettings().nCLSwitches &= ~CLSW_THUMBNAILS;
+            AfxGetMyApp()->ReportCmdLineError(_T("nothing to open"));
+            PostMessage(WM_CLOSE);
+        }
         return;
     }
 
@@ -20545,6 +20777,9 @@ void CMainFrame::OpenCurPlaylistItem(REFERENCE_TIME rtStart, bool reopen /* = fa
     }
 
     if (pli.m_bYoutubeDL && (reopen || pli.m_fns.GetHead() == pli.m_ydlSourceURL && m_sydlLastProcessURL != pli.m_ydlSourceURL)) {
+        if (DeferIfNested(DeferredActionType::Open, [this, rtStart, reopen, abRepeat] { OpenCurPlaylistItem(rtStart, reopen, abRepeat); })) {
+            return;
+        }
         if (!CloseMediaBeforeOpen()) {
             return;
         }
@@ -20577,6 +20812,25 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
 {
     ASSERT(!InSendMessage());
 
+    // split from OpenMediaInternal so the direct close inside it, and the one in
+    // OnClose, can bypass the depth check that only the wrappers make
+    if (m_nDeferredActionDepth > 0) {
+        // requested from inside a scope holder (OnTimer, OnGraphNotify, another
+        // open or close, MediaControl*); run it once they have returned. The
+        // holder keeps the data until then and frees it if the request is dropped
+        auto pHeld = std::make_shared<CAutoPtr<OpenMediaData>>(pOMD);
+        m_deferredActions.push_back({ DeferredActionType::Open, [this, pHeld] {
+            CAutoPtr<OpenMediaData> p(*pHeld);
+            OpenMedia(p);
+        } });
+        return;
+    }
+    CDeferredActionScope actionScope(*this);
+    OpenMediaInternal(pOMD);
+}
+
+void CMainFrame::OpenMediaInternal(CAutoPtr<OpenMediaData> pOMD)
+{
     // Next media load: stop force-showing the status bar that an earlier error revealed. A
     // host-supplied status message keeps its own three-second reveal across this transition.
     if (!m_bKeepTempStatusBarVisibleOnMediaLoad) {
@@ -20609,6 +20863,10 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
         #endif
         return;
     }
+    if (m_OnClose_queued) {
+        ASSERT(false);
+        return;
+    }
 
     if (m_bOpenMediaActive) {
         if (USE_LOGGER(s)) {
@@ -20626,7 +20884,15 @@ void CMainFrame::OpenMedia(CAutoPtr<OpenMediaData> pOMD)
     }
     m_bOpenMediaActive = true;
 
-    if (!CloseMediaBeforeOpen()) {
+    // the one place the close runs directly: the wrapper holds the scope, and the
+    // open needs the close to have finished before it continues
+    if (m_eMediaLoadState == MLS::LOADED || m_eMediaLoadState == MLS::LOADING || m_eMediaLoadState == MLS::FAILING) {
+        CloseMediaInternal(true);
+    }
+    if (m_eMediaLoadState != MLS::CLOSED || AfxGetMyApp()->m_fClosingState) {
+        PLAYER_LOG(_T("CMainFrame::OpenMedia - unexpected loadstate %d"), m_eMediaLoadState);
+        FLUSH_LOGGER();
+        ASSERT(false);
         m_bOpenMediaActive = false;
         return;
     }
@@ -20790,8 +21056,16 @@ bool CMainFrame::DisplayChange()
     return true;
 }
 
+// Closes the current file so the caller can do something else (yt-dlp, a dialog)
+// and then open. The close has to have run when this returns, so it cannot be
+// reached while a scope holder is on the stack: callers defer themselves as a
+// whole first (DeferIfNested), and a caller that gets here regardless is refused.
 bool CMainFrame::CloseMediaBeforeOpen()
 {
+    if (m_nDeferredActionDepth > 0) {
+        ASSERT(false);
+        return false;
+    }
     if (m_eMediaLoadState == MLS::LOADED || m_eMediaLoadState == MLS::LOADING || m_eMediaLoadState == MLS::FAILING) {
         CloseMedia(true);
     } else if (m_eMediaLoadState != MLS::CLOSED) {
@@ -20841,6 +21115,23 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
 
     ASSERT(!InSendMessage());
 
+    // split from CloseMediaInternal so OnClose and OpenMediaInternal, which already
+    // hold the scope, can close directly; only the wrappers check the depth
+    if (m_nDeferredActionDepth > 0) {
+        // requested from inside a scope holder (OnTimer, OnGraphNotify, another
+        // open or close, MediaControl*), through a dialog they raised or
+        // directly; run it once they have returned
+        m_deferredActions.push_back({ DeferredActionType::Close, [this, bNextIsQueued, bPendingFileDelete] {
+            CloseMedia(bNextIsQueued, bPendingFileDelete);
+        } });
+        return;
+    }
+    CDeferredActionScope actionScope(*this);
+    CloseMediaInternal(bNextIsQueued, bPendingFileDelete);
+}
+
+void CMainFrame::CloseMediaInternal(bool bNextIsQueued/* = false*/, bool bPendingFileDelete/* = false*/)
+{
     auto& s = AfxGetAppSettings();
 
     bool hibernating = (m_dwLastPause == 1ULL);
@@ -21100,7 +21391,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                             if (!lastOpenFile.IsEmpty() && !PathUtils::IsURL(lastOpenFile)) {
                                 // check file existance, this should spin up hdd
                                 ULONGLONG tc1 = GetTickCount64();
-                                CPath path = CPath(lastOpenFile);
+                                CLongPath path = CLongPath(lastOpenFile);
                                 bool exists = path.FileExists();
                                 ULONGLONG tc2 = GetTickCount64();
                                 if (tc2 - tc1 >= 500) {
@@ -21121,7 +21412,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                             }
                         }
 
-                        if (extendedwait || m_fFullScreen || s.hMasterWnd || hibernating || app_closing) {
+                        if (extendedwait || m_fFullScreen || s.hMasterWnd || hibernating || app_closing || m_OnClose_queued) {
                             processmsg = false;
                             #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
                             if (extendedwait && CrashReporter::IsEnabled()) {
@@ -21300,7 +21591,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                         if (!lastOpenFile.IsEmpty() && !PathUtils::IsURL(lastOpenFile)) {
                             // check file existance, this should spin up hdd
                             ULONGLONG tc1 = GetTickCount64();
-                            CPath path = CPath(lastOpenFile);
+                            CLongPath path = CLongPath(lastOpenFile);
                             bool exists = path.FileExists();
                             ULONGLONG tc2 = GetTickCount64();
                             if (tc2 - tc1 >= 500) {
@@ -21321,7 +21612,7 @@ void CMainFrame::CloseMedia(bool bNextIsQueued/* = false*/, bool bPendingFileDel
                         }
                     }
 
-                    if (extendedwait || m_fFullScreen || s.hMasterWnd || hibernating || app_closing) {
+                    if (extendedwait || m_fFullScreen || s.hMasterWnd || hibernating || app_closing || m_OnClose_queued) {
                         #if !defined(_DEBUG) && USE_DRDUMP_CRASH_REPORTER && (MPC_VERSION_REV > 10)
                         if (extendedwait && CrashReporter::IsEnabled()) {
                             if (IDYES == AfxMessageBox(L"It looks like the filter graph might be deadlocked.\n\nClick YES to submit a crash report.\nClick NO to terminate the player process.", MB_ICONEXCLAMATION | MB_YESNO, 0)) {
@@ -21481,7 +21772,7 @@ LRESULT CMainFrame::OnHeadlessScanEnd(WPARAM wParam, LPARAM lParam)
 
 void CMainFrame::FinishHeadlessDVBScan()
 {
-    const CAppSettings& s = AfxGetAppSettings();
+    CAppSettings& s = AfxGetAppSettings();
 
     // The serializer the web interface uses, not a second copy of it: whatever
     // /dvb/channels.json would say about these channels, this file says too.
@@ -21508,6 +21799,20 @@ void CMainFrame::FinishHeadlessDVBScan()
         // empty scan from an unwritable path.
         TRACE(_T("/dvbscan: could not write the result to '%s'\n"),
               s.cmdlnDVBScan.strOutputPath.GetString());
+    }
+
+    // /dvbscansave: the scan result becomes the saved channel list, so that a
+    // following /device run has something to tune. It replaces the list rather
+    // than merging into it the way CTunerScanDlg::OnBnClickedSave does, because
+    // a headless run should give the same result whatever was saved before. The
+    // pref numbers are already 0..n-1 in scan order, and the first channel is
+    // made the last watched one, which is the one /device tunes. An empty scan
+    // leaves the saved list alone. Nothing points into the old list here:
+    // StartTunerScan reset the DVB state. The profile itself is written by
+    // SaveSettings on the way out, like every other setting.
+    if (s.cmdlnDVBScan.bSaveChannels && !m_headlessDVBScanChannels.empty()) {
+        s.m_DVBChannels = m_headlessDVBScanChannels;
+        s.nDVBLastChannel = s.m_DVBChannels.front().GetPrefNumber();
     }
 
     m_bHeadlessDVBScan = false;
@@ -23431,7 +23736,23 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    if (message == WM_MPC_OPENCURPLAYLIST && (m_OnClose_called || IsStateClosingAborting())) {
+    // A message sent from another thread leaves that thread blocked in its stack
+    // while we run, so releasing the graph or the frame here is the same hazard
+    // as doing it under one of the handlers that pump. PostMessage does not get
+    // out of it on its own: a posted message dispatched by a pump running inside
+    // the sent one still reports InSendMessage, so it would come straight back
+    // in. Holding the scope defers instead, and the exit posts once the sent
+    // message has been answered. Not for the destroy messages, which come from
+    // DestroyWindow on this thread and delete the frame under us, and not for
+    // WM_POWERBROADCAST, which has to do its work before it returns and touches
+    // nothing afterwards.
+    std::optional<CDeferredActionScope> sentMessageScope;
+    if (InSendMessage() && message != WM_DESTROY && message != WM_NCDESTROY
+            && message != WM_POWERBROADCAST) {
+        sentMessageScope.emplace(*this);
+    }
+
+    if (message == WM_MPC_OPENCURPLAYLIST && (m_OnClose_called || m_OnClose_queued || IsStateClosingAborting())) {
         // this can for example happen when a modal dialog is shown during media close, as that runs another message loop
         TRACE(_T("Dropped WindowProc: message 0x%x value %d\n"), message, LOWORD(wParam));
         return 0;
@@ -23446,8 +23767,9 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     if (message == WM_SYSCOMMAND) {
         UINT nID = LOWORD(wParam) & 0XFFF0;
         if (nID == SC_CLOSE) {
+            m_OnClose_queued = true;
             if (!m_OnClose_called) {
-                OnClose();
+                PostMessage(WM_CLOSE);
             }
             return 0;
         }
@@ -23471,6 +23793,7 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
                 break;
             case IDTB_BUTTON5:
                 WINDOWPLACEMENT wp;
+                wp.length = sizeof(wp);
                 GetWindowPlacement(&wp);
                 if (wp.showCmd == SW_SHOWMINIMIZED) {
                     SendMessage(WM_SYSCOMMAND, SC_RESTORE, -1);
@@ -23543,7 +23866,8 @@ inline bool CMainFrame::ForwardMessageToRenderer(HWND hWnd, UINT message, WPARAM
 bool CMainFrame::IsAeroSnapped()
 {
     bool ret = false;
-    WINDOWPLACEMENT wp = { sizeof(wp) };
+    WINDOWPLACEMENT wp;
+    wp.length = sizeof(wp);
     if (IsWindowVisible() && !IsZoomed() && !IsIconic() && GetWindowPlacement(&wp)) {
         CRect rect;
         GetWindowRect(rect);
@@ -23573,14 +23897,20 @@ UINT CMainFrame::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
 
     switch (nPowerEvent) {
         case PBT_APMSUSPEND:            // System is suspending operation.
-        case PBT_APMSTANDBY:
+        case PBT_APMSTANDBY: {
             TRACE(_T("OnPowerBroadcast - suspending\n"));
             bWasPausedBeforeSuspention = FALSE;   
 
             // API docs says that event must be handled (within 2 sec) before returning from this message handler
-            // So can't use PostMessage for closing file
+            // So can't use PostMessage for closing file, and a deferred close is no
+            // better: it would run after we have answered. WindowProc leaves this
+            // message alone for that reason, but a pump can still deliver it inside
+            // a handler that holds the graph. Pause instead when that happens, since
+            // it stops playback without releasing anything.
+            const bool bCanCloseDirectly = (m_nDeferredActionDepth == 0);
+
             if (GetLoadState() == MLS::LOADED) {
-                if (AfxGetAppSettings().iReloadAfterLongPause >= 0) {
+                if (bCanCloseDirectly && AfxGetAppSettings().iReloadAfterLongPause >= 0) {
                     // save position and close file
                     m_reloadFilename = lastOpenFile;
                     m_rtReloadPos = m_wndSeekBar.HasDuration() ? m_wndSeekBar.GetPos() : 0;
@@ -23588,16 +23918,17 @@ UINT CMainFrame::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
                     m_iReloadAudioIdx = GetCurrentAudioTrackIdx();
                     m_iReloadSubIdx = GetCurrentSubtitleTrackIdx();
                     m_dwLastPause = 1ULL; // used as hibernation signal
-                    SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
+                    OnFileCloseMedia(); // direct: a WM_COMMAND would re-enter WindowProc and defer
                 } else if (GetMediaStateDirect() == State_Running) {
                     bWasPausedBeforeSuspention = TRUE;
                     SendMessage(WM_COMMAND, ID_PLAY_PAUSE);
                 }
-            } else if (GetLoadState() == MLS::LOADING) {
+            } else if (GetLoadState() == MLS::LOADING && bCanCloseDirectly) {
                 m_dwLastPause = 1ULL; // used as hibernation signal
-                SendMessage(WM_COMMAND, ID_FILE_CLOSEMEDIA);
+                OnFileCloseMedia(); // direct, see above
             }
             break;
+        }
         case PBT_APMRESUMESUSPEND:     // System is resuming operation
         case PBT_APMRESUMESTANDBY:
             TRACE(_T("OnPowerBroadcast - resuming\n"));
@@ -23792,7 +24123,7 @@ void CMainFrame::UpdateControlState(UpdateControlTarget target)
                 CString filename_no_ext;
                 CString filedir;
                 if (!PathUtils::IsURL(filename)) {
-                    CPath path = CPath(filename);
+                    CLongPath path = CLongPath(filename);
                     if (path.FileExists()) {
                         path.RemoveExtension();
                         filename_no_ext = path.m_strPath;
@@ -23812,7 +24143,7 @@ void CMainFrame::UpdateControlState(UpdateControlTarget target)
                     m_currentCoverAuthor = author;
                 } else {
                     CPlaylistItem pli;
-                    if (m_wndPlaylistBar.GetCur(pli) && !pli.m_cover.IsEmpty() && CPath(pli.m_cover).FileExists()) {
+                    if (m_wndPlaylistBar.GetCur(pli) && !pli.m_cover.IsEmpty() && CLongPath(pli.m_cover).FileExists()) {
                         LoadArtToViews(pli.m_cover);
                     } else if (PathUtils::IsURL(filename)) {
                         ClearArtFromViews();
@@ -23944,13 +24275,13 @@ bool CMainFrame::OpenBD(CString Path)
 
     m_LastOpenBDPath = Path;
 
-    CString ext = CPath(Path).GetExtension();
+    CString ext = CLongPath(Path).GetExtension();
     ext.MakeLower();
 
-    if ((CPath(Path).IsDirectory() && Path.Find(_T("\\BDMV"))) || CPath(Path + _T("\\BDMV")).IsDirectory() || (!ext.IsEmpty() && ext == _T(".bdmv"))) {
+    if ((CLongPath(Path).IsDirectory() && Path.Find(_T("\\BDMV"))) || CLongPath(Path + _T("\\BDMV")).IsDirectory() || (!ext.IsEmpty() && ext == _T(".bdmv"))) {
         if (!ext.IsEmpty() && ext == _T(".bdmv")) {
             Path.Replace(_T("\\BDMV\\"), _T("\\"));
-            CPath _Path(Path);
+            CLongPath _Path(Path);
             _Path.RemoveFileSpec();
             Path = CString(_Path);
         } else if (Path.Find(_T("\\BDMV"))) {
@@ -24719,6 +25050,11 @@ bool CMainFrame::DownloadWithYoutubeDL(CString url, CString filename)
 void CMainFrame::OnSettingChange(UINT uFlags, LPCTSTR lpszSection)
 {
     __super::OnSettingChange(uFlags, lpszSection);
+    if (lpszSection && 0 == _tcscmp(lpszSection, _T("ImmersiveColorSet")) && AppIsThemeLoaded() && CMPCTheme::EffectiveThemeStyle() == CMPCTheme::ModernThemeStyle::WINDOWS11) {
+        //the accent colour changed; only the Windows 11 style follows it
+        CMPCTheme::ApplyAccentColors();
+        RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
     if (SPI_SETNONCLIENTMETRICS == uFlags) {
         CMPCThemeUtil::GetMetrics(true);
         CMPCThemeMenu::clearDimensions();
@@ -24935,7 +25271,7 @@ void CMainFrame::MediaTransportControlSetMedia() {
                     CString filename_no_ext;
                     CString filedir;
                     if (!PathUtils::IsURL(filename)) {
-                        CPath path = CPath(filename);
+                        CLongPath path = CLongPath(filename);
                         if (path.FileExists()) {
                             path.RemoveExtension();
                             filename_no_ext = path.m_strPath;
