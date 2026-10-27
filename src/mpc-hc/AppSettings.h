@@ -977,6 +977,8 @@ public:
 
     int             DebugLogMask;
 
+    bool            HasD3DCompiler47() const;
+
     bool            IsD3DFullscreen() const;
     CString         SelectedAudioRenderer() const;
     bool            IsISRAutoLoadEnabled() const;
@@ -1115,6 +1117,8 @@ public:
     static std::multimap<CStringW, CStringW> LoadHistoryHashes(CStringW section, CStringW dateField);
     static void     PurgeExpiredHash(CStringW section, CStringW hash);
     void            LoadSettings();
+    void            ReadWindowsColorSettings();
+    void            UpdateThemeState();
     void            SaveExternalFilters() {
         if (bInitialized) {
             SaveExternalFilters(m_filters);

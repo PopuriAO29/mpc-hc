@@ -815,6 +815,21 @@ CAppSettings::~CAppSettings()
     }
 }
 
+bool CAppSettings::HasD3DCompiler47() const
+{
+    if (::PathFileExistsW(PathUtils::GetProgramPath(false) + L"\\D3DCompiler_47.dll")) {
+        return true;
+    }
+    wchar_t syspath[MAX_PATH];
+    UINT len = GetSystemDirectoryW(syspath, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        if (::PathFileExistsW(CString(syspath) + L"\\D3DCompiler_47.dll")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CAppSettings::IsD3DFullscreen() const
 {
     if (iDSVideoRendererType == VIDRNDT_DS_EVR_CUSTOM || iDSVideoRendererType == VIDRNDT_DS_SYNC) {
@@ -1922,7 +1937,7 @@ void CAppSettings::LoadSettings()
     fOverridePlacement = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SPOVERRIDEPLACEMENT, FALSE);
     nHorPos = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SPHORPOS, 50);
     nVerPos = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SPVERPOS, 90);
-    nSecondarySubVerPos = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SECONDARYSUBVERPOS, 0);
+    nSecondarySubVerPos = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_SECONDARYSUBVERPOS, 8);
     if (nSecondarySubVerPos < 0 || nSecondarySubVerPos > 100) {
         nSecondarySubVerPos = 8;
     }
@@ -1945,25 +1960,7 @@ void CAppSettings::LoadSettings()
     bAutoUploadSubtitles = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_AUTOUPLOADSUBTITLES, FALSE);
     bPreferHearingImpairedSubtitles = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_PREFERHEARINGIMPAIREDSUBTITLES, FALSE);
     bMPCTheme = !!pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MPCTHEME, TRUE);
-    if (IsWindows10OrGreater()) {
-        CRegKey key;
-        if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, _T("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), KEY_READ)) {
-            DWORD useTheme = (DWORD)-1;
-            if (ERROR_SUCCESS == key.QueryDWORDValue(_T("AppsUseLightTheme"), useTheme)) {
-                if (0 == useTheme) {
-                    bWindows10DarkThemeActive = true;
-                }
-            }
-        }
-        if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, _T("Software\\Microsoft\\Windows\\DWM"), KEY_READ)) {
-            DWORD useColorPrevalence = (DWORD)-1;
-            if (ERROR_SUCCESS == key.QueryDWORDValue(_T("ColorPrevalence"), useColorPrevalence)) {
-                if (1 == useColorPrevalence) {
-                    bWindows10AccentColorsEnabled = true;
-                }
-            }
-        }
-    }
+    ReadWindowsColorSettings();
     iModernSeekbarHeight = pApp->GetProfileInt(IDS_R_SETTINGS, IDS_RS_MODERNSEEKBARHEIGHT, DEF_MODERN_SEEKBAR_HEIGHT);
     if (iModernSeekbarHeight < MIN_MODERN_SEEKBAR_HEIGHT || iModernSeekbarHeight > MAX_MODERN_SEEKBAR_HEIGHT) {
         iModernSeekbarHeight = DEF_MODERN_SEEKBAR_HEIGHT;
@@ -2441,12 +2438,15 @@ void CAppSettings::LoadSettings()
                     }
                 }
             }
+            if (!HasD3DCompiler47()) {
+                iDSVideoRendererType = IsVideoRendererAvailable(VIDRNDT_DS_EVR_CUSTOM) ? VIDRNDT_DS_EVR_CUSTOM : VIDRNDT_DS_VMR9RENDERLESS;
+            }
         }
 
         bool gpu_changed = previous_gpuid1 != gpuid1;
-        // adjust settings if detection changed
-        if (gpu_changed && gpuinfo.UseMPCVR() && DSObjects::CMPCVRAllocatorPresenter::HasInternalMPCVRFilter()) {
-            if (iDSVideoRendererType != VIDRNDT_DS_MPCVR && iDSVideoRendererType != VIDRNDT_DS_MADVR && iDSVideoRendererType != VIDRNDT_DS_SYNC) {
+        if (iDSVideoRendererType != VIDRNDT_DS_MPCVR && iDSVideoRendererType != VIDRNDT_DS_MADVR && iDSVideoRendererType != VIDRNDT_DS_SYNC) {
+            // adjust settings if detection changed
+            if (gpu_changed && gpuinfo.UseMPCVR() && DSObjects::CMPCVRAllocatorPresenter::HasInternalMPCVRFilter() && HasD3DCompiler47()) {
                 iDSVideoRendererType = VIDRNDT_DS_MPCVR;
                 bool softwaredec = (pApp->GetProfileInt(IDS_R_INTERNAL_LAVVIDEO_HWACCEL, _T("HWAccel"), -1) == HWAccel_None);
                 if (gpuinfo.SupportD3D11VA()) {
@@ -2467,8 +2467,46 @@ void CAppSettings::LoadSettings()
         }
     }
 
+    UpdateThemeState();
+
+    if (fLaunchfullscreen && slFiles.GetCount() > 0) {
+        nCLSwitches |= CLSW_FULLSCREEN;
+    }
+
+    bInitialized = true;
+}
+
+void CAppSettings::ReadWindowsColorSettings()
+{
+    bWindows10DarkThemeActive = false;
+    bWindows10AccentColorsEnabled = false;
+    if (IsWindows10OrGreater()) {
+        CRegKey key;
+        if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, _T("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), KEY_READ)) {
+            DWORD useTheme = (DWORD)-1;
+            if (ERROR_SUCCESS == key.QueryDWORDValue(_T("AppsUseLightTheme"), useTheme)) {
+                if (0 == useTheme) {
+                    bWindows10DarkThemeActive = true;
+                }
+            }
+        }
+        if (ERROR_SUCCESS == key.Open(HKEY_CURRENT_USER, _T("Software\\Microsoft\\Windows\\DWM"), KEY_READ)) {
+            DWORD useColorPrevalence = (DWORD)-1;
+            if (ERROR_SUCCESS == key.QueryDWORDValue(_T("ColorPrevalence"), useColorPrevalence)) {
+                if (1 == useColorPrevalence) {
+                    bWindows10AccentColorsEnabled = true;
+                }
+            }
+        }
+    }
+}
+
+// works out whether the modern theme is drawn and with which palette; runs at startup and again
+// whenever a theme setting or the windows colour settings change, so all of it must be safe to redo
+void CAppSettings::UpdateThemeState()
+{
     // a contrast theme brings its own colours, which the modern palette cannot follow;
-    // step aside for the session and let the classic path draw with the system colours
+    // step aside while one is on and let the classic path draw with the system colours
     HIGHCONTRAST hc = { sizeof(hc) };
     bool bHighContrast = SystemParametersInfo(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) && (hc.dwFlags & HCF_HIGHCONTRASTON);
     bool bThemeLoaded = bMPCTheme && !bHighContrast;
@@ -2480,14 +2518,7 @@ void CAppSettings::LoadSettings()
     }
     // GUI theme can be used now
     static_cast<CMPlayerCApp*>(AfxGetApp())->m_bThemeLoaded = bThemeLoaded;
-    // like the theme itself, native menus are fixed for the session
     static_cast<CMPlayerCApp*>(AfxGetApp())->m_bNativeMenus = bThemeLoaded && bWin11NativeMenus && IsWindowsVersionOrGreaterBuild(10, 0, 22000);
-
-    if (fLaunchfullscreen && slFiles.GetCount() > 0) {
-        nCLSwitches |= CLSW_FULLSCREEN;
-    }
-
-    bInitialized = true;
 }
 
 bool CAppSettings::GetAllowMultiInst() const
@@ -2521,6 +2552,7 @@ void CAppSettings::UpdateRenderersData(bool fSave)
         pApp->WriteProfileInt(IDS_R_SETTINGS, _T("VMRColorManagementIntent"), ars.iVMR9ColorManagementIntent);
 
         pApp->WriteProfileInt(IDS_R_SETTINGS, _T("EVROutputRange"), ars.iEVROutputRange);
+        pApp->WriteProfileInt(IDS_R_SETTINGS, _T("ConvertHLGToSDR"), ars.bHLGToSDR);
         pApp->WriteProfileInt(IDS_R_SETTINGS, _T("EVRHighColorRes"), ars.bEVRHighColorResolution);
         pApp->WriteProfileInt(IDS_R_SETTINGS, _T("EVRForceInputHighColorRes"), ars.bEVRForceInputHighColorResolution);
         pApp->WriteProfileInt(IDS_R_SETTINGS, _T("EVREnableFrameTimeCorrection"), ars.bEVREnableFrameTimeCorrection);
@@ -2580,6 +2612,7 @@ void CAppSettings::UpdateRenderersData(bool fSave)
         ars.iVMR9ColorManagementIntent = pApp->GetProfileInt(IDS_R_SETTINGS, _T("VMRColorManagementIntent"), DefaultSettings.iVMR9ColorManagementIntent);
 
         ars.iEVROutputRange = !!pApp->GetProfileInt(IDS_R_SETTINGS, _T("EVROutputRange"), DefaultSettings.iEVROutputRange);
+        ars.bHLGToSDR = !!pApp->GetProfileInt(IDS_R_SETTINGS, _T("ConvertHLGToSDR"), DefaultSettings.bHLGToSDR);
 
         ars.bVMRFlushGPUBeforeVSync = !!pApp->GetProfileInt(IDS_R_SETTINGS, _T("VMRFlushGPUBeforeVSync"), DefaultSettings.bVMRFlushGPUBeforeVSync);
         ars.bVMRFlushGPUAfterPresent = !!pApp->GetProfileInt(IDS_R_SETTINGS, _T("VMRFlushGPUAfterPresent"), DefaultSettings.bVMRFlushGPUAfterPresent);
