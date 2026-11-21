@@ -66,7 +66,7 @@
 extern HICON LoadIcon(CString fn, bool bSmallIcon, DpiHelper* pDpiHelper = nullptr);
 extern bool LoadType(CString fn, CString& type);
 extern bool LoadResource(UINT resid, CStringA& str, LPCTSTR restype);
-extern CString GetContentType(CString fn, CAtlList<CString>* redir = nullptr);
+extern CString GetContentType(CString fn, std::list<CString>* redir = nullptr);
 extern WORD AssignedToCmd(UINT keyValue);
 extern std::map<CStringW, CStringW> GetAudioDeviceList();
 extern void SetAudioRenderer(int AudioDevNo);
@@ -111,6 +111,7 @@ enum {
     WM_MPC_UPDATE_CHECK_DONE, // posted by the update check thread with a heap UpdateCheckResult the frame takes ownership of
     WM_MPC_UI_REQUEST, // sent (never posted) by the web server's thread with a CMainFrame::UIRequest to run here
     WM_LAV_PROPPAGE_CALLBACK,
+    WM_INFOBAR_SHOWN, // posted by a CPlayerInfoBar when it is shown, with the bar in lParam
     WM_MPCVR_SWITCH_FULLSCREEN = WM_APP + 4096,
 };
 
@@ -140,7 +141,7 @@ class CMPlayerCApp : public CWinAppEx
 
     enum class RedirectResult { Redirected, OpenNormally, ExitSilently };
 
-    CAtlList<CString> m_cmdln;
+    std::list<CString> m_cmdln;
     // Latched from the switches once they are parsed, rather than read from
     // them on demand: the switch itself is consumed by the code paths that act
     // on it, and the run stays headless after that, right through the exit.
